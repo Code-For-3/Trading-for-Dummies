@@ -141,3 +141,50 @@ def calculate_rsi(df, period=14):
     df_copy['rsi'] = 100 - (100 / (1 + rs))
     
     return df_copy
+
+# =========================
+# Signal Generation
+# =========================
+
+def generate_signals_rsi(df, overbought=70, oversold=30, period=14):
+    result = df[['close']].copy()
+    result['signal'] = 0
+    
+    # Calculate RSI
+    rsi = calculate_rsi(df, period)['rsi']
+    
+    # Generate signals
+    result.loc[rsi > overbought, 'signal'] = -1  # Sell signal when overbought
+    result.loc[rsi < oversold, 'signal'] = 1  # Buy signal when oversold
+    
+    return result  # Returns DataFrame with 'close' and 'signal' columns
+
+def generate_signals_mfi(df, overbought=80, oversold=20, period=14):
+    result = df[['close']].copy() 
+    result['signal'] = 0 
+    
+    # Calculate MFI
+    mfi = calculate_mfi(df, period)['mfi']
+    
+    # Generate signals
+    result.loc[mfi > overbought, 'signal'] = -1  # Sell signal when overbought
+    result.loc[mfi < oversold, 'signal'] = 1  # Buy signal when oversold
+    
+    return result
+
+def generate_combined_signal(df, rsi_period=14, mfi_period=14):
+    result = df[['close']].copy()  # Keep close column
+    result['signal'] = 0  # Initialize signals to 0
+    
+    # Calculate RSI and MFI
+    rsi_df = calculate_rsi(df, rsi_period)
+    mfi_df = calculate_mfi(df, mfi_period)
+    
+    # Generate signals
+    # Strong buy signal (1) when both RSI < 30 and MFI < 20
+    result.loc[(rsi_df['rsi'] < 30) & (mfi_df['mfi'] < 20), 'signal'] = 1
+    
+    # Strong sell signal (-1) when both RSI > 70 and MFI > 80
+    result.loc[(rsi_df['rsi'] > 70) & (mfi_df['mfi'] > 80), 'signal'] = -1
+    
+    return result
