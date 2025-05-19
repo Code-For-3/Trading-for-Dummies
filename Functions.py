@@ -141,3 +141,106 @@ def calculate_rsi(df, period=14):
     df_copy['rsi'] = 100 - (100 / (1 + rs))
     
     return df_copy
+
+
+# ===============================================
+# Simple Moving Average Indicator
+# ===============================================
+
+def SimpleMA(df, small_window=20, long_window=50):
+    result = df[['close']].copy()  # keep close column
+    result['signal'] = 0
+
+    sma = df['close'].rolling(window=small_window).mean()
+    lma = df['close'].rolling(window=long_window).mean()
+
+    result.loc[sma > lma, 'signal'] = 1
+    result.loc[sma < lma, 'signal'] = -1
+
+    return result
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ===============================================
+# Backtesting Function
+# ===============================================
+
+
+def backtest(data, initial_cash=10_000, transaction_cost=0):
+    in_position = False
+    cash = initial_cash
+    entry_price = 0
+    trade_log = []
+    equity_curve = []
+
+    for i in range(1, len(data)):
+        signal = data['signal'].iloc[i]
+        price = data['close'].iloc[i]
+        timestamp = data.index[i]
+
+        # Track equity at each time step
+        equity_curve.append((timestamp, cash))
+
+        if signal == 1 and not in_position:
+            entry_price = price
+            in_position = True
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'buy',
+                'price': price
+            })
+
+        elif signal == -1 and in_position:
+            pnl = price - entry_price
+            cash += pnl
+            in_position = False
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'sell',
+                'price': price,
+                'pnl': pnl,
+                'cash': cash
+            })
+
+    # Final equity entry
+    if len(data) > 0:
+        equity_curve.append((data.index[-1], cash))
+
+    # Convert to pandas Series
+    index = [ts[1] if isinstance(ts, tuple) else ts for (ts, _) in equity_curve]
+    equity_series = pd.Series(
+        data=[val for (_, val) in equity_curve],
+        index=pd.to_datetime(index)
+    )
+
+    return equity_series, trade_log
+
+
+# ===============================================
+# Plot Equity Curve
+# ===============================================
+
+
+def plot_equity_curve(equity_series):
+    plt.figure(figsize=(12, 6))
+    plt.plot(equity_series, label='Equity Curve', linewidth=2)
+    plt.title("Strategy Equity Curve")
+    plt.xlabel("Time")
+    plt.ylabel("Cash / Equity")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
