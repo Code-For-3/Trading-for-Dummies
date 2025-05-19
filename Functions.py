@@ -113,3 +113,31 @@ def calculate_mfi(df, period=14):
     
     # Return original dataframe with MFI
     return df_copy[['open', 'high', 'low', 'close', 'volume', 'mfi']]
+
+
+# =========================
+# RSI Indicator
+# =========================
+
+def calculate_rsi(df, period=14):
+    # Make a copy of the dataframe to avoid modifying the original
+    df_copy = df.copy()
+    
+    # Calculate daily price changes
+    delta = df_copy['close'].diff()
+    
+    # Separate gains (up) and losses (down)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    
+    # Calculate average gain and average loss over the specified period
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
+    
+    # Calculate relative strength (RS)
+    rs = avg_gain / avg_loss
+    
+    # Calculate RSI
+    df_copy['rsi'] = 100 - (100 / (1 + rs))
+    
+    return df_copy
