@@ -181,6 +181,103 @@ def SimpleMA(df, small_window=20, long_window=50):
 
 
 def backtest(data, initial_cash=10_000, transaction_cost=0):
+    """
+    Backtests a long/short strategy with signal: 1 = long, -1 = short, 0 = close position.
+    Uses full capital on each trade and compounds returns.
+    """
+    position = "flat"  # can be 'long', 'short', or 'flat'
+    cash = initial_cash
+    entry_price = 0
+    trade_log = []
+    equity_curve = []
+
+    for i in range(1, len(data)):
+        signal = data['signal'].iloc[i]
+        price = data['close'].iloc[i]
+        timestamp = data.index[i]
+
+        # Track equity at each step
+        equity_curve.append((timestamp, cash))
+
+        # === CLOSE LOGIC ===
+        if signal == 0 and position != "flat":
+            if position == "long":
+                pnl = (price - entry_price - transaction_cost) / entry_price
+            elif position == "short":
+                pnl = (entry_price - price - transaction_cost) / entry_price
+            cash *= (1 + pnl)
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'close',
+                'position': position,
+                'price': price,
+                'pnl': pnl,
+                'cash': cash
+            })
+            position = "flat"
+
+        # === FLIP LOGIC ===
+        elif signal == 1 and position == "short":
+            pnl = (entry_price - price - transaction_cost) / entry_price
+            cash *= (1 + pnl)
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'flip_to_long',
+                'price': price,
+                'pnl': pnl,
+                'cash': cash
+            })
+            entry_price = price
+            position = "long"
+
+        elif signal == -1 and position == "long":
+            pnl = (price - entry_price - transaction_cost) / entry_price
+            cash *= (1 + pnl)
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'flip_to_short',
+                'price': price,
+                'pnl': pnl,
+                'cash': cash
+            })
+            entry_price = price
+            position = "short"
+
+        # === ENTER NEW POSITION ===
+        elif signal == 1 and position == "flat":
+            entry_price = price
+            position = "long"
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'buy',
+                'price': price
+            })
+
+        elif signal == -1 and position == "flat":
+            entry_price = price
+            position = "short"
+            trade_log.append({
+                'timestamp': timestamp,
+                'action': 'sell_short',
+                'price': price
+            })
+
+    # Final equity entry
+    if len(data) > 0:
+        equity_curve.append((data.index[-1], cash))
+
+    # Convert to equity Series
+    index = [ts[1] if isinstance(ts, tuple) else ts for (ts, _) in equity_curve]
+    equity_series = pd.Series(
+        data=[val for (_, val) in equity_curve],
+        index=pd.to_datetime(index)
+    )
+
+    return equity_series, trade_log
+
+
+
+def backtest_old(data, initial_cash=10_000, transaction_cost=0): # this has 1 open, 0 hold, -1 close trade
     in_position = False
     cash = initial_cash
     entry_price = 0
@@ -205,8 +302,8 @@ def backtest(data, initial_cash=10_000, transaction_cost=0):
             })
 
         elif signal == -1 and in_position:
-            pnl = price - entry_price
-            cash += pnl
+            pnl = (price - entry_price - transaction_cost) /entry_price
+            cash *= (1 + pnl)
             in_position = False
             trade_log.append({
                 'timestamp': timestamp,
