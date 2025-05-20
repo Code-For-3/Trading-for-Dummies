@@ -17,7 +17,7 @@ from scipy.stats import linregress
 API_KEY = "PKP6G2PCSLR7KABZBU9Z"
 API_SECRET = "mPNf9KoilrmoMdz4MedQdeaZWxda3D1YjgCIJbjd"
 
-client = StockHistoricalDataClient(API_KEY, API_SECRET)
+client = StockHistoricalDataClient(API_KEY, API_SECRET,adjustment='both')
 
 
 # Supported Timeframe
@@ -77,6 +77,140 @@ def get_stock_data(symbol: str, start_date: str, end_date: str,
     )]
 
     return df[required_cols]
+
+# ==========================
+# Extracting Close and Volume
+# ==========================
+
+def extract_close_volume(df, required_cols = ['close', 'volume']):
+    return df[required_cols].copy()
+
+# ==========================
+# Plotting Functions
+# ==========================
+
+
+def plot_candlestick_with_volume(df, symbol: str):
+    # If MultiIndex (e.g., (symbol, datetime)), reduce to datetime index
+    if isinstance(df.index, pd.MultiIndex):
+        df = df.reset_index(level=0, drop=True)
+
+    # Ensure index is datetime
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    # Reset index for plotting
+    df_plot = df.copy().reset_index()
+    df_plot.rename(columns={df_plot.columns[0]: 'timestamp'}, inplace=True)
+
+    # Use integer x positions (0, 1, 2, ...) to enforce uniform spacing
+    df_plot['x'] = range(len(df_plot))
+
+    # Build OHLC data
+    quotes = list(zip(
+        df_plot['x'],
+        df_plot['open'],
+        df_plot['high'],
+        df_plot['low'],
+        df_plot['close']
+    ))
+
+    # Plot
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 9), sharex=True,
+                                   gridspec_kw={'height_ratios': [3, 1]})
+
+    candlestick_ohlc(ax1, quotes, width=0.6, colorup='g', colordown='r', alpha=0.8)
+    ax1.set_title(f'{symbol} Candlestick Chart')
+    ax1.set_ylabel('Price')
+    ax1.grid(True)
+
+    # Volume bars
+    ax2.bar(df_plot['x'], df_plot['volume'], color='gray', width=0.6)
+    ax2.set_ylabel('Volume')
+    ax2.grid(True)
+
+    # Set x-ticks to timestamps
+    tick_interval = max(1, len(df_plot) // 10)
+    ax2.set_xticks(df_plot['x'][::tick_interval])
+    ax2.set_xticklabels(df_plot['timestamp'].dt.strftime('%Y-%m-%d')[::tick_interval], rotation=45)
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ==========================
+# Plotting Signals over price
+# ==========================
+
+
+def plot_price_with_signals(df, indicators=None):
+    if isinstance(df.index, pd.MultiIndex):
+        df = df.copy()
+        df.index = df.index.get_level_values(-1)
+        
+    if 'close' not in df.columns:
+        raise KeyError("'close' column is required in the DataFrame.")
+    
+    if indicators is None:
+        indicators = []
+
+    # Check for missing indicators
+    for col in indicators:
+        if col not in df.columns:
+            raise KeyError(f"Indicator '{col}' is missing from DataFrame.")
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Plot close price with light blue fill
+    ax.plot(df.index, df['close'], label='Close Price', color='tab:blue', linewidth=1.5)
+    ax.fill_between(df.index, df['close'], color='tab:blue', alpha=0.2)
+
+    # Highlight full chart background using axvspan
+    if 'signal' in df.columns:
+        current_signal = 0
+        start_time = None
+
+        for i in range(len(df)):
+            signal = df['signal'].iloc[i]
+            time = df.index[i]
+
+            if signal != current_signal:
+                # End previous region
+                if current_signal == 1:
+                    ax.axvspan(start_time, time, color='green', alpha=0.2)
+                elif current_signal == -1:
+                    ax.axvspan(start_time, time, color='red', alpha=0.2)
+
+                # Start new region
+                current_signal = signal
+                start_time = time
+
+        # Finish last region
+        if current_signal == 1:
+            ax.axvspan(start_time, df.index[-1], color='green', alpha=0.2)
+        elif current_signal == -1:
+            ax.axvspan(start_time, df.index[-1], color='red', alpha=0.2)
+
+
+
+    # Plot additional indicators
+    for col in indicators:
+        ax.plot(df.index, df[col], label=col, linestyle='--')
+
+    ax.set_title("Close Price with Signal Highlights")
+    ax.set_ylabel("Price")
+    ax.set_xlabel("Time")
+    ax.grid(True)
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+# =========================
+# Plotting Individual Indicators
+# =========================
+
+
 
 
 # =========================
@@ -150,16 +284,16 @@ def calculate_rsi(df, period=14):
 # ===============================================
 
 def SimpleMA(df, small_window=20, long_window=50):
-    result = df[['close']].copy()  # keep close column
-    result['signal'] = 0
-
+    df = df.copy()  
     sma = df['close'].rolling(window=small_window).mean()
     lma = df['close'].rolling(window=long_window).mean()
 
-    result.loc[sma > lma, 'signal'] = 1
-    result.loc[sma < lma, 'signal'] = -1
+    signal = pd.Series(0, index=df.index)
+    signal[sma > lma] = 1
+    signal[sma < lma] = -1
+    df['signal'] = signal
 
-    return result
+    return df
 
 
 
