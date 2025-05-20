@@ -22,7 +22,7 @@ from mplfinance.original_flavor import candlestick_ohlc
 
 
 
-# Section 1: Imports ========================================================================================================== Section 1: Imports
+# Section 1: Imports ========================================================================================================== Section 1: Imports & Data Formatting
 
 
 # Alpaca API Credentials
@@ -250,25 +250,25 @@ class Strategy:
 # Moving Average Crossover Strategy
 # =========================
 
-                class MovingAverageCrossoverStrategy(Strategy):
-                    def __init__(self, short_window=50, long_window=200, signal_col='signal_ma'):
-                        self.short_window = short_window
-                        self.long_window = long_window
-                        self.signal_col = signal_col
+class MovingAverageCrossoverStrategy(Strategy):
+    def __init__(self, short_window=50, long_window=200, signal_col='signal_ma'):
+        self.short_window = short_window
+        self.long_window = long_window
+        self.signal_col = signal_col
 
-                    def generate_signal(self, df: pd.DataFrame) -> pd.DataFrame:
-                        # Compute moving averages only if missing
-                        if f"SMA_{self.short_window}" not in df.columns:
-                            df[f"SMA_{self.short_window}"] = ta.sma(df['close'], length=self.short_window)
-                        if f"SMA_{self.long_window}" not in df.columns:
-                            df[f"SMA_{self.long_window}"] = ta.sma(df['close'], length=self.long_window)
+    def generate_signal(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Compute moving averages only if missing
+        if f"SMA_{self.short_window}" not in df.columns:
+            df[f"SMA_{self.short_window}"] = ta.sma(df['close'], length=self.short_window)
+        if f"SMA_{self.long_window}" not in df.columns:
+            df[f"SMA_{self.long_window}"] = ta.sma(df['close'], length=self.long_window)
 
-                        short_ma = df[f"SMA_{self.short_window}"]
-                        long_ma = df[f"SMA_{self.long_window}"]
+        short_ma = df[f"SMA_{self.short_window}"]
+        long_ma = df[f"SMA_{self.long_window}"]
 
-                        df[self.signal_col] = np.where(short_ma > long_ma, 1,
-                                                np.where(short_ma < long_ma, -1, 0))
-                        return df
+        df[self.signal_col] = np.where(short_ma > long_ma, 1,
+                                np.where(short_ma < long_ma, -1, 0))
+        return df
     
 # =========================
 # RSI Strategy
@@ -279,8 +279,8 @@ class RSIStrategy(Strategy):
         self.length = length
         self.overbought = overbought
         self.oversold = oversold
-        self.signal_col = signal_col
         self.indicator_col = f"RSI_{self.length}"
+        self.signal_col = f"signal_RSI_{self.length}_{self.overbought}_{self.oversold}"
 
     def generate_signal(self, df: pd.DataFrame) -> pd.DataFrame:
         # Compute RSI only if missing
