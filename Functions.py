@@ -314,8 +314,9 @@ def backtest(data, initial_cash=100, transaction_cost=0):
     return equity_series, trade_log
 
 
-def backtest_signals(data, initial_cash=100, risk_per_trade=0.01, leverage=100):
+def backtest_signals(data, initial_cash=1000, risk_per_trade=0.01, leverage=1):
     in_position = False
+    position_type = None  # 'long' or 'short'
     entry_price = 0
     position_size = 0
     cash = initial_cash
@@ -329,35 +330,64 @@ def backtest_signals(data, initial_cash=100, risk_per_trade=0.01, leverage=100):
 
         equity_curve.append((timestamp, cash))
 
-        if signal == 1 and not in_position:
-            # Enter long
+        # === ENTER LONG/SHORT ===
+        if not in_position and signal in [1, -1]:
             entry_price = price
-            risk_amount = cash * risk_per_trade * leverage  # leveraged risk
-            position_size = risk_amount / price  # leveraged position size
+            risk_amount = cash * risk_per_trade * leverage
+            position_size = risk_amount / price
+            position_type = 'long' if signal == 1 else 'short'
             in_position = True
 
             trade_log.append({
                 'timestamp': timestamp,
-                'action': 'buy',
+                'action': 'entry',
+                'side': position_type,
                 'entry_price': entry_price,
-                'size': position_size,
-                'leverage': leverage
+                'size': position_size
             })
 
-        elif signal == -1 and in_position:
-            # Exit position
-            exit_price = price
-            pnl = (exit_price - entry_price) * position_size
-            cash += pnl
-            in_position = False
+        # === EXIT ON 0 SIGNAL OR FLIP ===
+        elif in_position:
+            should_exit = (
+                (signal == 0) or
+                (position_type == 'long' and signal == -1) or
+                (position_type == 'short' and signal == 1)
+            )
 
-            trade_log.append({
-                'timestamp': timestamp,
-                'action': 'sell',
-                'exit_price': exit_price,
-                'pnl': pnl,
-                'cash': cash
-            })
+            if should_exit:
+                exit_price = price
+                pnl = (
+                    (exit_price - entry_price) * position_size
+                    if position_type == 'long'
+                    else (entry_price - exit_price) * position_size
+                )
+                cash += pnl
+                in_position = False
+
+                trade_log.append({
+                    'timestamp': timestamp,
+                    'action': 'exit',
+                    'side': position_type,
+                    'exit_price': exit_price,
+                    'pnl': pnl,
+                    'cash': cash
+                })
+
+                # === If flipping direction, immediately re-enter ===
+                if signal in [1, -1]:
+                    entry_price = price
+                    risk_amount = cash * risk_per_trade * leverage
+                    position_size = risk_amount / price
+                    position_type = 'long' if signal == 1 else 'short'
+                    in_position = True
+
+                    trade_log.append({
+                        'timestamp': timestamp,
+                        'action': 'entry',
+                        'side': position_type,
+                        'entry_price': entry_price,
+                        'size': position_size
+                    })
 
     # Final equity snapshot
     if len(data) > 0:
@@ -369,6 +399,8 @@ def backtest_signals(data, initial_cash=100, risk_per_trade=0.01, leverage=100):
     )
 
     return equity_series, trade_log
+
+
 
 
 
