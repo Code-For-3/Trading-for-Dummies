@@ -106,23 +106,28 @@ def remove_hol(df):
 # Plotting Candlestick with Volume
 # ==========================
 
-def plot_candlestick_with_volume(df, symbol: str):
-    # If MultiIndex (e.g., (symbol, datetime)), reduce to datetime index
+def plot_candlestick_with_volume(df, symbol: str = None, use_log_volume=False, clip_volume=True):
+    # Handle MultiIndex (e.g., symbol, datetime)
     if isinstance(df.index, pd.MultiIndex):
         df = df.reset_index(level=0, drop=True)
 
-    # Ensure index is datetime
+    # Ensure datetime index
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
     # Reset index for plotting
     df_plot = df.copy().reset_index()
     df_plot.rename(columns={df_plot.columns[0]: 'timestamp'}, inplace=True)
-
-    # Use integer x positions (0, 1, 2, ...) to enforce uniform spacing
     df_plot['x'] = range(len(df_plot))
 
-    # Build OHLC data
+    # Auto-extract symbol if not given
+    if symbol is None:
+        if 'symbol' in df.columns:
+            symbol = df['symbol'].iloc[0]
+        else:
+            symbol = "Unknown"
+
+    # Candlestick OHLC tuples
     quotes = list(zip(
         df_plot['x'],
         df_plot['open'],
@@ -131,32 +136,46 @@ def plot_candlestick_with_volume(df, symbol: str):
         df_plot['close']
     ))
 
-    # Plot
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 9), sharex=True,
                                    gridspec_kw={'height_ratios': [3, 1]})
 
+    # Plot candlestick chart
     candlestick_ohlc(ax1, quotes, width=0.6, colorup='g', colordown='r', alpha=0.7)
     ax1.set_title(f'{symbol} Candlestick Chart')
     ax1.set_ylabel('Price')
     ax1.grid(True)
 
-    # Volume bars
-
-    # Determine color based on price direction
+    # Volume colors based on candle direction
     volume_colors = np.where(df_plot['close'] >= df_plot['open'], 'green', 'red')
 
-    # Volume bars without gaps between them
-    ax2.bar(df_plot['x'], df_plot['volume'], color=volume_colors, width=1.0, alpha=0.6)
+    # Clip volume to 99th percentile if enabled
+    if clip_volume:
+        volume_cap = np.percentile(df_plot['volume'], 99)
+        df_plot['volume_to_plot'] = np.minimum(df_plot['volume'], volume_cap)
+    else:
+        df_plot['volume_to_plot'] = df_plot['volume']
+
+    # Plot volume bars
+    ax2.bar(df_plot['x'], df_plot['volume_to_plot'], color=volume_colors, width=0.6, alpha=0.6)
     ax2.set_ylabel('Volume')
     ax2.grid(True)
 
-    # Set x-ticks to timestamps
-    tick_interval = max(1, len(df_plot) // 10)
-    ax2.set_xticks(df_plot['x'][::tick_interval])
-    ax2.set_xticklabels(df_plot['timestamp'].dt.strftime('%Y-%m-%d')[::tick_interval], rotation=45)
+    # Optional log scale
+    if use_log_volume:
+        ax2.set_yscale('log')
 
+    # Format x-axis ticks with readable dates
+    tick_interval = max(1, len(df_plot) // 10)
+    x_ticks = df_plot['x'][::tick_interval]
+    x_labels = df_plot['timestamp'].dt.strftime('%Y-%m-%d').iloc[::tick_interval]
+    ax2.xaxis.set_major_locator(FixedLocator(x_ticks))
+    ax2.set_xticklabels(x_labels, rotation=45, ha='right')
+
+    fig.subplots_adjust(bottom=0.2)
     plt.tight_layout()
     plt.show()
+
+
 
 
 
