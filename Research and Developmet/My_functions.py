@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import linregress
 from mplfinance.original_flavor import candlestick_ohlc
+from matplotlib.ticker import FixedLocator
 
 
 #import plotly # for interactive plots
@@ -42,8 +43,7 @@ SUPPORTED_TIMEFRAMES = {
 # Fetching Stock Data
 # ==========================
 
-def get_stock_data(symbol: str, start_date: str, end_date: str,
-                   timeframe_unit: str = "Day", multiplier: int = 1):
+def get_stock_data(symbol: str, start_date: str, end_date: str, timeframe_unit: str = "Day", multiplier: int = 1):
                    
     if timeframe_unit not in SUPPORTED_TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe unit: {timeframe_unit}")
@@ -159,73 +159,10 @@ def plot_candlestick_with_volume(df, symbol: str):
     plt.show()
 
 
-# ==========================
-# Plotting Strategy Signals over price
-# ==========================
-
-def plot_price_with_signals(df, indicators=None):
-    if isinstance(df.index, pd.MultiIndex):
-        df = df.copy()
-        df.index = df.index.get_level_values(-1)
-        
-    if 'close' not in df.columns:
-        raise KeyError("'close' column is required in the DataFrame.")
-    
-    if indicators is None:
-        indicators = []
-
-    # Check for missing indicators
-    for col in indicators:
-        if col not in df.columns:
-            raise KeyError(f"Indicator '{col}' is missing from DataFrame.")
-
-    fig, ax = plt.subplots(figsize=(14, 6))
-
-    # Plot close price with light blue fill
-    ax.plot(df.index, df['close'], label='Close Price', color='tab:blue', linewidth=1.5)
-    ax.fill_between(df.index, df['close'], color='tab:blue', alpha=0.2)
-
-    # Highlight full chart background using axvspan
-    if 'signal' in df.columns:
-        current_signal = 0
-        start_time = None
-
-        for i in range(len(df)):
-            signal = df['signal'].iloc[i]
-            time = df.index[i]
-
-            if signal != current_signal:
-                # End previous region
-                if current_signal == 1:
-                    ax.axvspan(start_time, time, color='green', alpha=0.2)
-                elif current_signal == -1:
-                    ax.axvspan(start_time, time, color='red', alpha=0.2)
-
-                # Start new region
-                current_signal = signal
-                start_time = time
-
-        # Finish last region
-        if current_signal == 1:
-            ax.axvspan(start_time, df.index[-1], color='green', alpha=0.2)
-        elif current_signal == -1:
-            ax.axvspan(start_time, df.index[-1], color='red', alpha=0.2)
-
-    # Plot additional indicators
-    for col in indicators:
-        ax.plot(df.index, df[col], label=col, linestyle='--')
-
-    ax.set_title("Close Price with Signal Highlights")
-    ax.set_ylabel("Price")
-    ax.set_xlabel("Time")
-    ax.grid(True)
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
 
 
 # =========================
-# Plotting Individual Strategies
+# Plotting Individual Strategies ##### come back to later, i actually dont care about visual representation of strategies so much
 # =========================
 
 
@@ -245,13 +182,13 @@ class Strategy:
         self.signal_col: str = None
         self.compute: bool = True
 
-    def plot_price_with_signals(self, df: pd.DataFrame, price_col: str = 'close', indicators: list = None):
+    def plot_price_with_signals(self, df: pd.DataFrame):
         if isinstance(df.index, pd.MultiIndex):
             df = df.copy()
             df.index = df.index.get_level_values(-1)
 
-        if price_col not in df.columns:
-            raise KeyError(f"'{price_col}' column is required in the DataFrame.")
+        if "close" not in df.columns:
+            raise KeyError(f"'close' column is required in the DataFrame.")
 
         # If compute is False, force signal generation
         if not self.compute:
@@ -262,66 +199,68 @@ class Strategy:
             self.signal_col = '__flat_signal__'
             df[self.signal_col] = 0  # flat signal, no action
 
-        # Optional indicators
-        if indicators is None:
-            indicators = []
-        for col in indicators:
-            if col not in df.columns:
-                raise KeyError(f"Indicator '{col}' is missing from DataFrame.")
+        # Prepare data for plotting
+        df_plot = df.copy().reset_index()
+        df_plot.rename(columns={df_plot.columns[0]: 'timestamp'}, inplace=True)
+        df_plot['x'] = range(len(df_plot))
 
-        # Begin plotting
         fig, ax = plt.subplots(figsize=(14, 6))
-        ax.plot(df.index, df[price_col], label=price_col.capitalize(), color='tab:blue', linewidth=1.5)
-        ax.fill_between(df.index, df[price_col], color='tab:blue', alpha=0.2)
+        ax.plot(df_plot['x'], df_plot['close'], label='Close', color='tab:blue', linewidth=1.5)
+        ax.fill_between(df_plot['x'], df_plot['close'], color='tab:blue', alpha=0.2)
 
         # Plot shaded signal regions
         current_signal = 0
-        start_time = None
-        for i in range(len(df)):
+        start_idx = 0
+        for i in range(len(df_plot)):
             signal = df[self.signal_col].iloc[i]
-            time = df.index[i]
-
             if signal != current_signal:
                 if current_signal == 1:
-                    ax.axvspan(start_time, time, color='green', alpha=0.2)
+                    ax.axvspan(start_idx, i, color='green', alpha=0.2)
                 elif current_signal == -1:
-                    ax.axvspan(start_time, time, color='red', alpha=0.2)
+                    ax.axvspan(start_idx, i, color='red', alpha=0.2)
                 current_signal = signal
-                start_time = time
+                start_idx = i
 
         # Final region to the end
         if current_signal == 1:
-            ax.axvspan(start_time, df.index[-1], color='green', alpha=0.2)
+            ax.axvspan(start_idx, len(df_plot) - 1, color='green', alpha=0.2)
         elif current_signal == -1:
-            ax.axvspan(start_time, df.index[-1], color='red', alpha=0.2)
+            ax.axvspan(start_idx, len(df_plot) - 1, color='red', alpha=0.2)
 
-        # Plot indicators
-        for col in indicators:
-            ax.plot(df.index, df[col], label=col, linestyle='--')
+        # Dynamic y-axis scaling
+        ymin = df_plot['close'].min()
+        ymax = df_plot['close'].max()
+        padding = (ymax - ymin) * 0.02
+        ax.set_ylim(ymin - padding, ymax + padding)
 
-        ax.set_title(f"{price_col.capitalize()} with {self.signal_col} Highlights")
+        # Format X-axis ticks with readable timestamps
+        tick_interval = max(1, len(df_plot) // 8)
+        x_ticks = df_plot['x'][::tick_interval]
+        x_labels = df_plot['timestamp'].dt.strftime('%Y-%m-%d').iloc[::tick_interval]
+        ax.xaxis.set_major_locator(FixedLocator(x_ticks))
+        ax.set_xticklabels(x_labels, rotation=45, ha='right')
+
+        ax.set_title(f"Close with {self.signal_col} Highlights")
         ax.set_ylabel("Price")
         ax.set_xlabel("Time")
         ax.grid(True)
         ax.legend()
+        fig.subplots_adjust(bottom=0.2)
         plt.tight_layout()
         plt.show()
+
 
     def generate_signal(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply strategy logic and return DataFrame with a 'signal' column"""
         raise NotImplementedError("Subclasses must implement generate_signal()")
     
-    def plot_trades(self, df: pd.DataFrame, price_col: str = 'close'):
-        import matplotlib.pyplot as plt
-        import numpy as np
-        from mplfinance.original_flavor import candlestick_ohlc
-
+    def plot_trades(self, df: pd.DataFrame):
         if isinstance(df.index, pd.MultiIndex):
             df = df.copy()
             df.index = df.index.get_level_values(-1)
 
-        if price_col not in df.columns:
-            raise KeyError(f"'{price_col}' column is required in the DataFrame.")
+        if 'close' not in df.columns:
+            raise KeyError(f"'{'close'}' column is required in the DataFrame.")
 
         if not self.compute:
             df = self.generate_signal(df)
@@ -331,17 +270,17 @@ class Strategy:
             df[self.signal_col] = 0
 
         signal = df[self.signal_col]
-        price = df[price_col]
-        index = df.index
+        price = df['close']
 
         has_ohlc = all(col in df.columns for col in ['open', 'high', 'low', 'close', 'volume'])
 
-        # Plot price
+        df_plot = df.copy().reset_index()
+        df_plot.rename(columns={df_plot.columns[0]: 'timestamp'}, inplace=True)
+        df_plot['x'] = range(len(df_plot))
+
         fig, ax = plt.subplots(figsize=(14, 6))
+
         if has_ohlc:
-            df_plot = df.copy().reset_index()
-            df_plot.rename(columns={df_plot.columns[0]: 'timestamp'}, inplace=True)
-            df_plot['x'] = range(len(df_plot))
             quotes = list(zip(
                 df_plot['x'],
                 df_plot['open'],
@@ -350,16 +289,10 @@ class Strategy:
                 df_plot['close']
             ))
             candlestick_ohlc(ax, quotes, width=0.6, colorup='g', colordown='r', alpha=0.7)
-            x_vals = df_plot['x']
-            prices = df_plot['close'].values
-            timestamps = df_plot['timestamp']
         else:
-            ax.plot(index, price, label='Price', color='tab:blue', linewidth=1.5)
-            x_vals = df.index 
-            prices = price.values
-            timestamps = index
+            ax.plot(df_plot['x'], df_plot['close'], label='Price', color='tab:blue', linewidth=1.5)
 
-        # Trade state tracker
+        # Trade markers
         in_trade = False
         entry_idx = None
         entry_price = None
@@ -367,8 +300,8 @@ class Strategy:
 
         for i in range(1, len(signal)):
             curr_sig = signal.iloc[i]
-            x = x_vals[i]
-            p = prices[i]
+            x = df_plot['x'].iloc[i]
+            p = df_plot['close'].iloc[i]
 
             # ENTRY LONG
             if not in_trade and curr_sig == 1:
@@ -386,33 +319,41 @@ class Strategy:
                 in_trade = True
                 ax.plot(x, p, marker='v', color='red', markersize=10)
 
-            # EXIT LONG: signal no longer 1
+            # EXIT LONG
             elif in_trade and direction == 'long' and curr_sig != 1:
                 ax.plot(x, p, marker='x', color='black', markersize=10)
                 color = 'green' if p > entry_price else 'red'
                 ax.plot([entry_idx, x], [entry_price, p], linestyle='--', linewidth=2.5, color=color)
                 in_trade = False
 
-            # EXIT SHORT: signal no longer -1
+            # EXIT SHORT
             elif in_trade and direction == 'short' and curr_sig != -1:
                 ax.plot(x, p, marker='x', color='black', markersize=10)
                 color = 'green' if p < entry_price else 'red'
                 ax.plot([entry_idx, x], [entry_price, p], linestyle='--', linewidth=2.5, color=color)
                 in_trade = False
 
+        # Y-axis zoom
+        ymin = df_plot['close'].min()
+        ymax = df_plot['close'].max()
+        padding = (ymax - ymin) * 0.02
+        ax.set_ylim(ymin - padding, ymax + padding)
+
+        # X-axis formatting
+        tick_interval = max(1, len(df_plot) // 8)
+        x_ticks = df_plot['x'][::tick_interval]
+        x_labels = df_plot['timestamp'].dt.strftime('%Y-%m-%d').iloc[::tick_interval]
+        ax.xaxis.set_major_locator(FixedLocator(x_ticks))
+        ax.set_xticklabels(x_labels, rotation=45, ha='right')
 
         ax.set_title(f"Trade Entries & Exits ({self.signal_col})")
         ax.set_ylabel("Price")
         ax.set_xlabel("Time")
         ax.grid(True)
-
-        if has_ohlc:
-            tick_interval = max(1, len(timestamps) // 10)
-            ax.set_xticks(x_vals[::tick_interval])
-            ax.set_xticklabels([ts.strftime('%Y-%m-%d') for ts in timestamps[::tick_interval]], rotation=45)
-
+        fig.subplots_adjust(bottom=0.2)
         plt.tight_layout()
         plt.show()
+
 
 
 
@@ -545,5 +486,9 @@ class MACDStrategy(Strategy):
         self.compute = True
         return df if self.include_hist else (df, df[self.macd_col] - df[self.signal_col])
 
+
+# =========================
+# Bollinger Bands Strategy
+# ========================= 
 
 
