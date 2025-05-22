@@ -402,10 +402,6 @@ def backtest_signals(data, initial_cash=1000, risk_per_trade=0.01, leverage=1):
 
 
 
-
-
-
-
 # ===============================================
 # Evaluate Performance
 # ===============================================
