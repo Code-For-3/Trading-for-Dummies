@@ -11,14 +11,16 @@ def backtest_with_rr_exit(data, initial_cash=1000, risk_per_trade=0.01, leverage
 
     for i in range(1, len(data)):
         signal = data['signal'].iloc[i]
-        price = data['close'].iloc[i]
+        high = data['high'].iloc[i]
+        low = data['low'].iloc[i]
         timestamp = data.index[i]
         equity_curve.append((timestamp, cash))
 
         if not in_position and signal in [1, -1]:
-            entry_price = price
+            # Entry happens at sweep level, so long enters at low, short at high
+            entry_price = low if signal == 1 else high
             risk_amount = cash * risk_per_trade * leverage
-            stop_loss = stop_pct * price
+            stop_loss = stop_pct * entry_price
             position_size = risk_amount / stop_loss
             position_type = 'long' if signal == 1 else 'short'
             in_position = True
@@ -43,11 +45,25 @@ def backtest_with_rr_exit(data, initial_cash=1000, risk_per_trade=0.01, leverage
             })
 
         elif in_position:
-            hit_tp = price >= tp_price if position_type == 'long' else price <= tp_price
-            hit_sl = price <= sl_price if position_type == 'long' else price >= sl_price
+            # Check if TP or SL was hit within the candle range (high/low)
+            exit_price = None
+            if position_type == 'long':
+                if low <= sl_price and high >= tp_price:
+                    # Both TP and SL hit — assume SL hit first (be conservative)
+                    exit_price = sl_price
+                elif low <= sl_price:
+                    exit_price = sl_price
+                elif high >= tp_price:
+                    exit_price = tp_price
+            else:  # short
+                if high >= sl_price and low <= tp_price:
+                    exit_price = sl_price  # Conservative: SL hit first
+                elif high >= sl_price:
+                    exit_price = sl_price
+                elif low <= tp_price:
+                    exit_price = tp_price
 
-            if hit_tp or hit_sl:
-                exit_price = price
+            if exit_price is not None:
                 pnl = (exit_price - entry_price) * position_size if position_type == 'long' else (entry_price - exit_price) * position_size
                 cash += pnl
                 in_position = False
