@@ -197,3 +197,40 @@ def Overfitting_reduction(pf, objective_function=None, smoothing_size=3, filter_
     best_params = dict(zip(param_names, best_param_tuple))
 
     return best_params, best_value, best_portfolio
+
+
+def Overfitting_reduction_simpler(pf, objective_function=None, smoothing_size=3, filter_threshold=0.0):
+    # Step 1: Compute raw result grid
+    if objective_function is not None:
+        results = objective_function(pf)
+    else:
+        results = pf.total_return().values
+
+    # Step 2: Extract parameter structure
+    multi_index = pf.wrapper.columns
+    param_df = pd.DataFrame(multi_index.tolist(), columns=multi_index.names)
+    param_levels = {col: np.unique(param_df[col]) for col in param_df.columns}
+    shape = tuple(len(param_levels[col]) for col in param_df.columns)
+
+    # Step 3: Reshape results
+    reshaped = results.reshape(shape)
+
+    # Step 4: Smooth
+    smoothed_grid = uniform_filter(reshaped, size=smoothing_size)
+
+    # Step 5: Filter
+    filtered_grid = np.where(smoothed_grid > filter_threshold, smoothed_grid, 0.0)
+
+    # Step 6: Skip cropping - use full filtered grid
+    param_names = list(param_levels.keys())
+    param_values = list(param_levels.values())
+    combos = list(product(*param_values))  # Cartesian product
+    score_series = pd.Series(filtered_grid.flatten(), index=pd.MultiIndex.from_tuples(combos, names=param_names))
+
+    # Step 7: Get best parameters and portfolio
+    best_param_tuple = score_series.idxmax()
+    best_value = score_series.loc[best_param_tuple]
+    best_portfolio = pf[best_param_tuple]
+    best_params = dict(zip(param_names, best_param_tuple))
+
+    return best_params, best_value, best_portfolio
