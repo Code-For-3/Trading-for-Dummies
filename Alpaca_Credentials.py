@@ -1,3 +1,0 @@
-# Alpaca API Credentials
-ALPACA_API_KEY  = "PKP6G2PCSLR7KABZBU9Z"
-ALPACA_SECRET_KEY = "mPNf9KoilrmoMdz4MedQdeaZWxda3D1YjgCIJbjd"

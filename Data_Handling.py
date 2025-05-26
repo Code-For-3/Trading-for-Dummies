@@ -13,7 +13,7 @@ from scipy.ndimage import uniform_filter
 from itertools import product
 
 
-from Alpaca_Credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY
+from Credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY
 client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 
 # Supported Timeframe
