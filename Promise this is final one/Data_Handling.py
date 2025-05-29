@@ -234,3 +234,24 @@ def Overfitting_reduction_simpler(pf, objective_function=None, smoothing_size=3,
     best_params = dict(zip(param_names, best_param_tuple))
 
     return best_params, best_value, best_portfolio
+
+
+
+
+
+
+
+def build_signals_from_trade_indices(trades_df, full_index):
+    entries = pd.Series(False, index=full_index)
+    exits = pd.Series(False, index=full_index)
+
+    for _, row in trades_df.iterrows():
+        entry_idx = int(row['entry_idx'])
+        exit_idx = int(row['exit_idx'])
+
+        if 0 <= entry_idx < len(full_index):
+            entries.iloc[entry_idx] = True
+        if 0 <= exit_idx < len(full_index):
+            exits.iloc[exit_idx] = True
+
+    return entries, exits
