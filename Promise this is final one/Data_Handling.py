@@ -13,7 +13,9 @@ from vectorbt.indicators.factory import IndicatorFactory
 import matplotlib.pyplot as plt
 from scipy.ndimage import uniform_filter
 from itertools import product
-import optuna   #
+import optuna
+from sklearn.linear_model import LinearRegression
+from scipy.stats import linregress, pearsonr
 
 
 from Alpaca_Credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY
@@ -255,3 +257,115 @@ def build_signals_from_trade_indices(trades_df, full_index):
             exits.iloc[exit_idx] = True
 
     return entries, exits
+
+
+
+
+
+
+def plot_trade_frequency_distribution_per_day(all_trades, data):
+    all_trades_df = pd.concat(all_trades, ignore_index=True)
+
+    # Map entry indices to timestamps and normalize to dates
+    all_trades_df['entry_time'] = data.index[all_trades_df['entry_idx']]
+    all_trades_df['entry_date'] = all_trades_df['entry_time'].dt.normalize()
+
+    # Count trades per day
+    daily_trade_counts = all_trades_df['entry_date'].value_counts()
+
+    # Count how often each number of trades per day occurs
+    trade_count_distribution = daily_trade_counts.value_counts().sort_index()
+
+    plt.figure(figsize=(12, 6))
+    trade_count_distribution.plot(kind='bar')
+    plt.title('Distribution of Number of Trades per Day')
+    plt.xlabel('Trades in a Day')
+    plt.ylabel('Number of Days')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def plot_trade_return_distribution_from_pf(portfolio):
+    trade_returns = portfolio.trades.records['return'] * 100 
+    
+    plt.figure(figsize=(12, 6))
+    plt.hist(trade_returns, bins=40, edgecolor='black')
+    plt.title("Distribution of All Trade Returns (%)")
+    plt.xlabel("Trade Return (%)")
+    plt.ylabel("Number of Trades")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def plot_portfolios_return_distribution(all_pf, bins=30):
+    # Extract and convert returns to %
+    daily_returns = [entry["Portfolios"].total_return() * 100 for entry in all_pf]
+    daily_returns_pdS = pd.Series(daily_returns)
+
+    plt.figure(figsize=(12, 6))
+    daily_returns_pdS.plot(kind='hist', bins=bins, edgecolor='black', color='mediumseagreen')
+    plt.title("Distribution of each Portfolio period Returns (%)")
+    plt.xlabel("Total Return (%)")
+    plt.ylabel("Number of Portfolios")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def plot_expected_vs_actual_returns(all_pf):
+    # Extract expected and actual returns
+    expected_returns = [entry["Expected Returns"] for entry in all_pf]
+    actual_returns = [entry["Portfolios"].total_return() for entry in all_pf]
+
+    X = np.array(expected_returns).reshape(-1, 1)
+    y = np.array(actual_returns)
+
+    # Fit linear model
+    model = LinearRegression()
+    model.fit(X, y)
+    y_pred = model.predict(X)
+
+    # Regression stats
+    slope, intercept, r_value, p_value, std_err = linregress(expected_returns, actual_returns)
+    corr_coef, _ = pearsonr(expected_returns, actual_returns)
+
+    # Plot
+    plt.figure(figsize=(12, 6))
+    plt.scatter(expected_returns, actual_returns, alpha=0.7, label='Actual vs Expected')
+    plt.plot(expected_returns, y_pred, color='red', label='Fit Line')
+    plt.title("Expected vs Actual Returns (Walk-Forward)")
+    plt.xlabel("Expected Return")
+    plt.ylabel("Actual Return")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Show stats on plot
+    plt.figtext(
+        0.15, 0.01,
+        f"R² = {r_value**2:.3f}, p = {p_value:.3e}, r = {corr_coef:.3f}, Slope = {slope:.3f}, Intercept = {intercept:.3f}",
+        fontsize=10
+    )
+
+    plt.show()
+
+
+def plot_trades_per_portfolio(all_trades, all_pf):
+    # Count trades in each test window
+    num_trades = [len(trades_df) for trades_df in all_trades]
+    returns = [entry["Portfolios"].total_return() for entry in all_pf]
+    returns = [entry["Portfolios"].total_return() for entry in all_pf]
+    colors = ['green' if ret > 0 else 'red' for ret in returns]
+    # Create labels like pf0, pf1, ...
+    pf_labels = [f"pf{i}" for i in range(len(all_trades))]
+    x = list(range(len(all_trades)))
+
+    # Plot
+    plt.figure(figsize=(12, 6))
+    plt.bar(x, num_trades, color=colors, edgecolor='black')
+    plt.title("Number of Trades per Walk-Forward Portfolio")
+    plt.xlabel("Portfolio")
+    plt.ylabel("Number of Trades")
+    plt.xticks(rotation=45)
+    plt.grid(True, axis='y')
+    plt.tight_layout()
+    plt.show()
