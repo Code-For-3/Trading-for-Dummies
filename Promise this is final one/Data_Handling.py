@@ -238,7 +238,7 @@ def Overfitting_reduction_simpler(pf, objective_function=None, smoothing_size=3,
     return best_params, best_value, best_portfolio
 
 
-def Overfitting_reduction_simplest(pf, objective_function=None, smoothing_size=3, filter_threshold=0.0):
+def Overfitting_reduction_simplest(pf, objective_function=None, smoothing_size=3):
     # Step 1: Compute raw result grid
     if objective_function is not None:
         results = objective_function(pf)
