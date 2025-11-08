@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,11 +25,8 @@ from mplfinance.original_flavor import candlestick_ohlc
 
 # Section 1: Imports ========================================================================================================== Section 1: Imports & Data Formatting
 
-
-# Alpaca API Credentials
-API_KEY = "PKP6G2PCSLR7KABZBU9Z"
-API_SECRET = "mPNf9KoilrmoMdz4MedQdeaZWxda3D1YjgCIJbjd"
-
+API_KEY = os.environ.get("API_KEY") or os.environ.get("ALPACA_API_KEY")
+API_SECRET = os.environ.get("API_SECRET") or os.environ.get("ALPACA_API_SECRET")
 client = StockHistoricalDataClient(API_KEY, API_SECRET)
 
 # Supported Timeframe
