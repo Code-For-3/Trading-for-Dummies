@@ -1,0 +1,119 @@
+# Trading Strategy Framework
+
+This repository provides a modular Python framework for fetching, analyzing, and visualizing stock data, as well as implementing and testing different trading strategies using **Alpaca API**, **pandas-ta**, and **matplotlib**.
+
+---
+
+## 📊 Features
+
+- Fetch historical stock data from **Alpaca API**
+- Support for multiple timeframes (minute, hour, day)
+- Automatic cleaning of non-trading days and missing data
+- Built-in technical indicators using `pandas-ta`
+- Customizable trading strategies:
+  - Simple Moving Average (SMA) Crossover
+  - Exponential Moving Average (EMA) Crossover
+  - Relative Strength Index (RSI)
+  - Moving Average Convergence Divergence (MACD)
+- Candlestick and signal visualization
+- Trade plotting with entry/exit markers
+
+---
+
+## ⚙️ Requirements
+
+Install dependencies using:
+
+```bash
+pip install pandas numpy matplotlib pandas-ta yfinance alpaca-py scipy mplfinance
+```
+
+You will also need to set your Alpaca API credentials as environment variables:
+
+```bash
+export API_KEY="your_api_key"
+export API_SECRET="your_api_secret"
+```
+
+or
+
+```bash
+export ALPACA_API_KEY="your_api_key"
+export ALPACA_API_SECRET="your_api_secret"
+```
+
+---
+
+## 🚀 Usage
+
+### 1. Fetch Stock Data
+
+```python
+df = get_stock_data("AAPL", start_date="2023-01-01", end_date="2023-12-31")
+```
+
+### 2. Apply a Strategy
+
+```python
+from strategies import SMACrossoverStrategy
+
+strategy = SMACrossoverStrategy(fast=10, slow=50)
+df = strategy.generate_signal(df)
+strategy.plot_trades(df)
+```
+
+### 3. Visualize Data
+
+```python
+plot_candlestick_with_volume(df, "AAPL")
+plot_price_with_signals(df, indicators=["SMA_10", "SMA_50"])
+```
+
+---
+
+## 🧠 Strategy Classes
+
+Each strategy inherits from the base `Strategy` class and implements the `generate_signal()` method to produce buy/sell signals.
+
+| Strategy | Description |
+|-----------|--------------|
+| **SMACrossoverStrategy** | Uses fast and slow moving averages to detect bullish or bearish trends |
+| **EMACrossoverStrategy** | Similar to SMA but more responsive to recent data |
+| **RSIStrategy** | Generates signals based on overbought/oversold RSI levels |
+| **MACDStrategy** | Uses MACD and signal line crossovers |
+
+---
+
+## 📈 Plotting Functions
+
+- **plot_candlestick_with_volume(df, symbol)** – Displays price candles with corresponding volume.
+- **plot_price_with_signals(df, indicators)** – Overlays strategy signals on the price chart.
+- **plot_trades(df)** – Visualizes trade entries and exits for a given strategy.
+
+---
+
+## 🧩 File Structure
+
+```
+project/
+│
+├── main.py                # Entry point of the program
+├── strategies.py          # Contains strategy classes (SMA, EMA, RSI, MACD)
+├── data_fetcher.py        # Handles Alpaca data requests
+├── plotting.py            # Visualization functions
+├── requirements.txt       # Python dependencies
+└── README.md              # Project documentation
+```
+
+---
+
+## 🧰 Future Improvements
+
+- Add backtesting framework with performance metrics (Sharpe ratio, win rate, etc.)
+- Support for cryptocurrency and forex pairs
+- Integration with Plotly for interactive charts
+- AI/ML-based signal generation
+
+---
+
+> _*Developed by Mario Portillo*_
