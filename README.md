@@ -1,5 +1,11 @@
 # Trading Strategy Framework
 
+[![Language: Python](https://img.shields.io/badge/Language-Python-blue.svg)](https://www.python.org/)
+[![API: Alpaca](https://img.shields.io/badge/API-Alpaca-black.svg)](https://alpaca.markets/)
+[![Indicators: pandas--ta](https://img.shields.io/badge/Indicators-pandas--ta-yellow.svg)](https://github.com/twopirllc/pandas-ta)
+[![Data: Yahoo Finance](https://img.shields.io/badge/Data-Yahoo%20Finance-purple.svg)](https://finance.yahoo.com/)
+[![Visualization: Matplotlib](https://img.shields.io/badge/Visualization-Matplotlib-red.svg)](https://matplotlib.org/)
+
 This repository provides a modular Python framework for fetching, analyzing, and visualizing stock data, as well as implementing and testing different trading strategies using **Alpaca API**, **pandas-ta**, and **matplotlib**.
 
 ---
