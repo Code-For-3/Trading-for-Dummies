@@ -1,5 +1,0 @@
-# Alpaca API Credentials
-ALPACA_API_KEY  = ""
-ALPACA_SECRET_KEY = ""
-
-TRADING_212_API_KEY = ""

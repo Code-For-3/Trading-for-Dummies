@@ -2,6 +2,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
+import os
 import numpy as np
 import pandas as pd
 from numba import njit
@@ -13,8 +14,9 @@ from scipy.ndimage import uniform_filter
 from itertools import product
 
 
-from Credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY
-client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+API_KEY = os.environ.get("API_KEY") or os.environ.get("ALPACA_API_KEY")
+API_SECRET = os.environ.get("API_SECRET") or os.environ.get("ALPACA_API_SECRET")
+client = StockHistoricalDataClient(API_KEY, API_SECRET)
 
 # Supported Timeframe
 SUPPORTED_TIMEFRAMES = {
