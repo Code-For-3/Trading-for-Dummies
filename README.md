@@ -13,7 +13,6 @@ This repository provides a modular Python framework for fetching, analyzing, and
 ## 📊 Features
 
 - Fetch historical stock data from **Alpaca API**
-- Support for multiple timeframes (minute, hour, day)
 - Automatic cleaning of non-trading days and missing data
 - Built-in technical indicators using `pandas-ta`
 - Customizable trading strategies:
@@ -39,13 +38,6 @@ You will also need to set your Alpaca API credentials as environment variables:
 ```bash
 export API_KEY="your_api_key"
 export API_SECRET="your_api_secret"
-```
-
-or
-
-```bash
-export ALPACA_API_KEY="your_api_key"
-export ALPACA_API_SECRET="your_api_secret"
 ```
 
 ---
@@ -90,26 +82,17 @@ Each strategy inherits from the base `Strategy` class and implements the `genera
 
 ---
 
-## 📈 Plotting Functions
+## Example Screenshots
 
-- **plot_candlestick_with_volume(df, symbol)** – Displays price candles with corresponding volume.
-- **plot_price_with_signals(df, indicators)** – Overlays strategy signals on the price chart.
-- **plot_trades(df)** – Visualizes trade entries and exits for a given strategy.
-
----
-
-## 🧩 File Structure
+```bash
+Date from: 2024-01-01
+Date to: 2025-04-30
 
 ```
-project/
-│
-├── main.py                # Entry point of the program
-├── strategies.py          # Contains strategy classes (SMA, EMA, RSI, MACD)
-├── data_fetcher.py        # Handles Alpaca data requests
-├── plotting.py            # Visualization functions
-├── requirements.txt       # Python dependencies
-└── README.md              # Project documentation
-```
+
+![Walk-Forward: Actual Return vs Optimized Value](images/walk_forward.png)
+![Walk-Forward Equity](images/walk_forward_equity.png)
+
 
 ---
 
