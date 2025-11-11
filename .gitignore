@@ -1,1 +1,6 @@
 .env
+node_modules
+.venv
+__pycache__/
+best_model.h5
+__pycache__/Data_Handling.cpython-311.pyc
