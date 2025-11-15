@@ -25,6 +25,30 @@ This repository provides a modular Python framework for fetching, analyzing, and
 
 ---
 
+## Example Screenshots
+
+```bash
+Date from: 2024-01-01
+Date to: 2025-04-30
+
+```
+
+![Walk-Forward: Actual Return vs Optimized Value](images/walk_forward.png)
+![Walk-Forward Equity](images/walk_forward_equity.png)
+
+## Neural Network Implementation
+
+```bash
+1 minute timeframe - Predicts the next 1 minute price close
+Date from: 2025-09-01
+Date to: 2025-10-01
+```
+
+![Actual vs Predicted](images/actual_vs_predicted.png)
+![Prediction Accuracy](images/prediction_accuracy.png)
+
+---
+
 ## ⚙️ Requirements
 
 Install dependencies using:
@@ -82,17 +106,34 @@ Each strategy inherits from the base `Strategy` class and implements the `genera
 
 ---
 
-## Example Screenshots
+## ✅ To-Do Progress
 
-```bash
-Date from: 2024-01-01
-Date to: 2025-04-30
+- [x] Connect to Alpaca API and fetch historical stock data  
+- [x] Clean and preprocess data (remove missing values, non-trading days)  
+- [x] Implement base framework for trading strategies  
+- [x] Add SMA, EMA, RSI, and MACD strategy classes  
+- [x] Create visualization utilities (candlestick charts, buy/sell markers, signal overlays)  
+- [x] Test strategies on historical data for validation  
+- [x] Add configurable parameters (start/end date, timeframe, symbol)  
 
-```
+### 🔄 Current Stage
+- [x] Integrate **LSTM-based stock price prediction** using TensorFlow  
+- [x] Evaluate model performance (RMSE, MAE, Directional Accuracy)  
+- [ ] Optimize model hyperparameters (epochs, window size, batch size)  
+- [ ] Improve data pipeline for multi-timeframe support (1m, 5m, 15m, 1h)  
+- [ ] Merge ML predictions with strategy signals for hybrid decision-making  
 
-![Walk-Forward: Actual Return vs Optimized Value](images/walk_forward.png)
-![Walk-Forward Equity](images/walk_forward_equity.png)
-
+### 🚀 Upcoming Tasks
+- [ ] Implement **backtesting engine** for automated performance evaluation  
+- [ ] Add portfolio and risk metrics (Sharpe ratio, win rate, drawdown)  
+- [ ] Extend support for cryptocurrencies and forex pairs  
+- [ ] Create configuration file (`config.yaml`) for easy parameter tuning  
+- [ ] Build a CLI interface to run different strategies and models  
+- [ ] Integrate Plotly for interactive visualizations  
+- [ ] Add live trading simulation with paper trading API  
+- [ ] Write unit tests for core modules (`data_fetch`, `strategies`, `visuals`)  
+- [ ] Improve documentation and add code examples  
+- [ ] Deploy web dashboard for results visualization (e.g., Streamlit or Flask)
 
 ---
 
