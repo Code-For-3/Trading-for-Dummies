@@ -102,24 +102,25 @@ class LSTMPricePredictor:
         
         return returns
     
-    def _create_sequences(self, returns, target_col_idx=3):
+    def _create_sequences(self, returns, target_col_indices=[0, 1, 2, 3]):
         """
         Create input-output sequences for LSTM training.
         Optimized with NumPy for efficiency.
+        Now predicts OHLC (4 values) instead of just Close.
         
         Parameters:
         -----------
         returns : np.ndarray
             Return data (n_samples, n_features)
-        target_col_idx : int
-            Index of target column (3 = Close)
+        target_col_indices : list
+            Indices of target columns [0=Open, 1=High, 2=Low, 3=Close]
             
         Returns:
         --------
         X : np.ndarray
             Input sequences (n_sequences, lookback_window, n_features)
         y : np.ndarray
-            Target sequences (n_sequences, prediction_horizon)
+            Target sequences (n_sequences, prediction_horizon, 4) for OHLC
         """
         n_samples = len(returns)
         n_features = returns.shape[1]
@@ -132,12 +133,14 @@ class LSTMPricePredictor:
         
         # Pre-allocate arrays for efficiency
         X = np.zeros((n_sequences, self.lookback_window, n_features), dtype=np.float32)
-        y = np.zeros((n_sequences, self.prediction_horizon), dtype=np.float32)
+        # y now has shape (n_sequences, prediction_horizon, 4) for OHLC
+        y = np.zeros((n_sequences, self.prediction_horizon, 4), dtype=np.float32)
         
         # Vectorized sequence creation using advanced indexing
         for i in range(n_sequences):
             X[i] = returns[i:i + self.lookback_window]
-            y[i] = returns[i + self.lookback_window:i + self.lookback_window + self.prediction_horizon, target_col_idx]
+            # Extract OHLC for all prediction steps
+            y[i] = returns[i + self.lookback_window:i + self.lookback_window + self.prediction_horizon, target_col_indices]
         
         return X, y
     
@@ -171,13 +174,13 @@ class LSTMPricePredictor:
             ))
             model.add(Dropout(self.dropout, name=f'dropout_{i+1}'))
         
-        # Output layer
+        # Output layer - now predicts 4 values (OHLC) per step
         if self.prediction_mode == 'direct':
-            # Predict all N steps at once
-            model.add(Dense(self.prediction_horizon, name='output'))
+            # Predict all N steps at once (N steps × 4 OHLC values)
+            model.add(Dense(self.prediction_horizon * 4, name='output'))
         else:
-            # Predict single step (will be called recursively)
-            model.add(Dense(1, name='output'))
+            # Predict single step with 4 OHLC values (will be called recursively)
+            model.add(Dense(4, name='output'))
         
         # Compile model
         model.compile(
@@ -226,7 +229,9 @@ class LSTMPricePredictor:
         
         # For recursive mode, we only train to predict 1 step ahead
         if self.prediction_mode == 'recursive':
-            y = y[:, 0:1]  # Only first step
+            # y shape: (n_sequences, prediction_horizon, 4)
+            # We want: (n_sequences, 4) for single-step OHLC prediction
+            y = y[:, 0, :]  # Only first step, all 4 OHLC values
         
         # Build model
         if self.verbose:
@@ -279,6 +284,7 @@ class LSTMPricePredictor:
         """
         Recursively predict N steps ahead.
         Each prediction feeds into the next.
+        Now predicts full OHLC candles instead of just Close.
         
         Parameters:
         -----------
@@ -288,26 +294,25 @@ class LSTMPricePredictor:
         Returns:
         --------
         predictions : np.ndarray
-            Predicted returns for N steps (prediction_horizon,)
+            Predicted OHLC returns for N steps (prediction_horizon, 4)
         """
         current_sequence = initial_sequence.copy()
-        predictions = np.zeros(self.prediction_horizon, dtype=np.float32)
+        predictions = np.zeros((self.prediction_horizon, 4), dtype=np.float32)
         
         for step in range(self.prediction_horizon):
-            # Predict next step
+            # Predict next step (returns 4 values: OHLC)
             next_pred = self.model.predict(
                 current_sequence[np.newaxis, :, :],
                 verbose=0
-            )[0, 0]
+            )[0]  # Shape: (4,) for OHLC
             
             predictions[step] = next_pred
             
-            # Update sequence: shift left and append prediction
-            # Assume prediction is for Close (index 3)
+            # Update sequence: shift left and append predicted OHLC
             new_row = np.zeros(current_sequence.shape[1], dtype=np.float32)
-            new_row[3] = next_pred  # Close prediction
-            # For other features, use simple persistence (last value)
-            new_row[[0, 1, 2, 4]] = current_sequence[-1, [0, 1, 2, 4]]
+            new_row[0:4] = next_pred  # OHLC predictions
+            # For Volume, use simple persistence (last value)
+            new_row[4] = current_sequence[-1, 4]
             
             current_sequence = np.vstack([current_sequence[1:], new_row])
         
@@ -317,6 +322,7 @@ class LSTMPricePredictor:
         """
         Batch version of recursive prediction for multiple sequences.
         Processes predictions in batches for efficiency.
+        Now handles OHLC predictions (4 values per step).
         
         Parameters:
         -----------
@@ -328,10 +334,10 @@ class LSTMPricePredictor:
         Returns:
         --------
         all_predictions : np.ndarray
-            Predicted returns for all sequences (n_sequences, prediction_horizon)
+            Predicted OHLC returns for all sequences (n_sequences, prediction_horizon, 4)
         """
         n_sequences = len(sequences)
-        all_predictions = np.zeros((n_sequences, self.prediction_horizon), dtype=np.float32)
+        all_predictions = np.zeros((n_sequences, self.prediction_horizon, 4), dtype=np.float32)
         
         # Process each prediction step across all sequences
         current_sequences = sequences.copy()
@@ -342,16 +348,16 @@ class LSTMPricePredictor:
                 current_sequences,
                 batch_size=batch_size,
                 verbose=0
-            )[:, 0]  # Shape: (n_sequences,)
+            )  # Shape: (n_sequences, 4) for OHLC
             
-            all_predictions[:, step] = step_predictions
+            all_predictions[:, step, :] = step_predictions
             
             # Update all sequences for next step
             if step < self.prediction_horizon - 1:  # Don't update on last step
                 for i in range(n_sequences):
                     new_row = np.zeros(current_sequences.shape[2], dtype=np.float32)
-                    new_row[3] = step_predictions[i]  # Close prediction
-                    new_row[[0, 1, 2, 4]] = current_sequences[i, -1, [0, 1, 2, 4]]
+                    new_row[0:4] = step_predictions[i]  # OHLC predictions
+                    new_row[4] = current_sequences[i, -1, 4]  # Volume persistence
                     
                     # Shift sequence and append new prediction
                     current_sequences[i] = np.vstack([current_sequences[i, 1:], new_row])
@@ -361,6 +367,7 @@ class LSTMPricePredictor:
     def _predict_direct(self, sequence):
         """
         Directly predict all N steps at once.
+        Now handles OHLC predictions (4 values per step).
         
         Parameters:
         -----------
@@ -370,12 +377,15 @@ class LSTMPricePredictor:
         Returns:
         --------
         predictions : np.ndarray
-            Predicted returns for N steps (prediction_horizon,)
+            Predicted OHLC returns for N steps (prediction_horizon, 4)
         """
         predictions = self.model.predict(
             sequence[np.newaxis, :, :],
             verbose=0
-        )[0]
+        )[0]  # Shape: (prediction_horizon * 4,)
+        
+        # Reshape to (prediction_horizon, 4)
+        predictions = predictions.reshape(self.prediction_horizon, 4)
         
         return predictions
     
@@ -427,11 +437,13 @@ class LSTMPricePredictor:
             all_predictions = self._batch_predict_recursive(all_sequences, batch_size=self.batch_size)
         else:
             # Direct mode: predict all at once
-            all_predictions = self.model.predict(
+            raw_predictions = self.model.predict(
                 all_sequences,
                 batch_size=self.batch_size,
                 verbose=0 if not self.verbose else 1
-            )
+            )  # Shape: (n_predictions, prediction_horizon * 4)
+            # Reshape to (n_predictions, prediction_horizon, 4)
+            all_predictions = raw_predictions.reshape(n_predictions, self.prediction_horizon, 4)
         
         if self.verbose:
             print(f"Predictions complete!")
@@ -443,43 +455,65 @@ class LSTMPricePredictor:
     
     def _returns_to_prices(self, data, predicted_returns, start_idx):
         """
-        Convert predicted returns back to actual price predictions.
+        Convert predicted OHLC returns back to actual OHLC price predictions.
         
         Parameters:
         -----------
         data : pd.DataFrame
             Original OHLCV data
         predicted_returns : np.ndarray
-            Predicted returns (n_predictions, prediction_horizon)
+            Predicted OHLC returns (n_predictions, prediction_horizon, 4)
         start_idx : int
             Starting index for predictions
             
         Returns:
         --------
         results : pd.DataFrame
-            DataFrame with actual and predicted prices
+            DataFrame with actual OHLC and predicted OHLC prices
         """
-        close_prices = data['Close'].values
+        ohlc_data = data[['Open', 'High', 'Low', 'Close']].values
         n_predictions = len(predicted_returns)
         
         results = pd.DataFrame(index=data.index[start_idx:start_idx + n_predictions])
-        results['actual_price'] = close_prices[start_idx:start_idx + n_predictions]
+        # Store actual OHLC
+        results['actual_open'] = ohlc_data[start_idx:start_idx + n_predictions, 0]
+        results['actual_high'] = ohlc_data[start_idx:start_idx + n_predictions, 1]
+        results['actual_low'] = ohlc_data[start_idx:start_idx + n_predictions, 2]
+        results['actual_close'] = ohlc_data[start_idx:start_idx + n_predictions, 3]
+        # Keep backward compatibility
+        results['actual_price'] = results['actual_close']
         
-        # Convert each prediction horizon to actual prices
+        # Convert each prediction horizon to actual OHLC prices
         for step in range(self.prediction_horizon):
-            predicted_prices = np.zeros(n_predictions, dtype=np.float32)
+            pred_open = np.zeros(n_predictions, dtype=np.float32)
+            pred_high = np.zeros(n_predictions, dtype=np.float32)
+            pred_low = np.zeros(n_predictions, dtype=np.float32)
+            pred_close = np.zeros(n_predictions, dtype=np.float32)
             
             for i in range(n_predictions):
-                base_price = close_prices[start_idx + i - 1]
+                # Base prices from previous candle
+                base_open = ohlc_data[start_idx + i - 1, 0]
+                base_high = ohlc_data[start_idx + i - 1, 1]
+                base_low = ohlc_data[start_idx + i - 1, 2]
+                base_close = ohlc_data[start_idx + i - 1, 3]
                 
-                # Compound returns for multi-step predictions
-                cumulative_return = 1.0
+                # Compound returns for multi-step predictions (OHLC separately)
+                cumulative_returns = np.ones(4, dtype=np.float32)
                 for s in range(step + 1):
-                    cumulative_return *= (1 + predicted_returns[i, s])
+                    cumulative_returns *= (1 + predicted_returns[i, s, :])
                 
-                predicted_prices[i] = base_price * cumulative_return
+                pred_open[i] = base_open * cumulative_returns[0]
+                pred_high[i] = base_high * cumulative_returns[1]
+                pred_low[i] = base_low * cumulative_returns[2]
+                pred_close[i] = base_close * cumulative_returns[3]
             
-            results[f'pred_price_{step+1}'] = predicted_prices
+            # Store predicted OHLC for this horizon
+            results[f'pred_open_{step+1}'] = pred_open
+            results[f'pred_high_{step+1}'] = pred_high
+            results[f'pred_low_{step+1}'] = pred_low
+            results[f'pred_close_{step+1}'] = pred_close
+            # Keep backward compatibility
+            results[f'pred_price_{step+1}'] = pred_close
         
         return results
     
