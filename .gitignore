@@ -1,0 +1,36 @@
+# Credentials and API Keys
+*Credentials.py
+Alpaca_Credentials.py
+Credentials.py
+
+# Model files (large)
+models/
+*.keras
+*.h5
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv
+env/
+venv/
+
+# VS Code
+.vscode/
+
+# Data files
+*.csv
+*.parquet
+
+# OS files
+.DS_Store
+Thumbs.db
