@@ -8,10 +8,10 @@ warnings.filterwarnings('ignore')
 
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.preprocessing import StandardScaler
 
 
@@ -102,25 +102,25 @@ class LSTMPricePredictor:
         
         return returns
     
-    def _create_sequences(self, returns, target_col_indices=[0, 1, 2, 3]):
+    def _create_sequences(self, returns, target_col_indices=[0, 1, 2, 3, 4]):
         """
         Create input-output sequences for LSTM training.
         Optimized with NumPy for efficiency.
-        Now predicts OHLC (4 values) instead of just Close.
+        Now predicts OHLCV (5 values) to match input dimensions.
         
         Parameters:
         -----------
         returns : np.ndarray
             Return data (n_samples, n_features)
         target_col_indices : list
-            Indices of target columns [0=Open, 1=High, 2=Low, 3=Close]
+            Indices of target columns [0=Open, 1=High, 2=Low, 3=Close, 4=Volume]
             
         Returns:
         --------
         X : np.ndarray
             Input sequences (n_sequences, lookback_window, n_features)
         y : np.ndarray
-            Target sequences (n_sequences, prediction_horizon, 4) for OHLC
+            Target sequences (n_sequences, prediction_horizon, 5) for OHLCV
         """
         n_samples = len(returns)
         n_features = returns.shape[1]
@@ -133,13 +133,13 @@ class LSTMPricePredictor:
         
         # Pre-allocate arrays for efficiency
         X = np.zeros((n_sequences, self.lookback_window, n_features), dtype=np.float32)
-        # y now has shape (n_sequences, prediction_horizon, 4) for OHLC
-        y = np.zeros((n_sequences, self.prediction_horizon, 4), dtype=np.float32)
+        # y now has shape (n_sequences, prediction_horizon, 5) for OHLCV
+        y = np.zeros((n_sequences, self.prediction_horizon, 5), dtype=np.float32)
         
         # Vectorized sequence creation using advanced indexing
         for i in range(n_sequences):
             X[i] = returns[i:i + self.lookback_window]
-            # Extract OHLC for all prediction steps
+            # Extract OHLCV for all prediction steps
             y[i] = returns[i + self.lookback_window:i + self.lookback_window + self.prediction_horizon, target_col_indices]
         
         return X, y
@@ -174,13 +174,13 @@ class LSTMPricePredictor:
             ))
             model.add(Dropout(self.dropout, name=f'dropout_{i+1}'))
         
-        # Output layer - now predicts 4 values (OHLC) per step
+        # Output layer - now predicts 5 values (OHLCV) per step
         if self.prediction_mode == 'direct':
-            # Predict all N steps at once (N steps × 4 OHLC values)
-            model.add(Dense(self.prediction_horizon * 4, name='output'))
+            # Predict all N steps at once (N steps × 5 OHLCV values)
+            model.add(Dense(self.prediction_horizon * 5, name='output'))
         else:
-            # Predict single step with 4 OHLC values (will be called recursively)
-            model.add(Dense(4, name='output'))
+            # Predict single step with 5 OHLCV values (will be called recursively)
+            model.add(Dense(5, name='output'))
         
         # Compile model
         model.compile(
@@ -229,9 +229,9 @@ class LSTMPricePredictor:
         
         # For recursive mode, we only train to predict 1 step ahead
         if self.prediction_mode == 'recursive':
-            # y shape: (n_sequences, prediction_horizon, 4)
-            # We want: (n_sequences, 4) for single-step OHLC prediction
-            y = y[:, 0, :]  # Only first step, all 4 OHLC values
+            # y shape: (n_sequences, prediction_horizon, 5)
+            # We want: (n_sequences, 5) for single-step OHLCV prediction
+            y = y[:, 0, :]  # Only first step, all 5 OHLCV values
         
         # Build model
         if self.verbose:
@@ -249,12 +249,6 @@ class LSTMPricePredictor:
                 patience=early_stopping_patience,
                 restore_best_weights=True,
                 verbose=self.verbose
-            ),
-            ModelCheckpoint(
-                os.path.join(self.model_dir, 'best_model.keras'),
-                monitor='val_loss',
-                save_best_only=True,
-                verbose=0
             )
         ]
         
@@ -284,7 +278,7 @@ class LSTMPricePredictor:
         """
         Recursively predict N steps ahead.
         Each prediction feeds into the next.
-        Now predicts full OHLC candles instead of just Close.
+        Now predicts full OHLCV (all 5 features) to match input dimensions.
         
         Parameters:
         -----------
@@ -294,25 +288,22 @@ class LSTMPricePredictor:
         Returns:
         --------
         predictions : np.ndarray
-            Predicted OHLC returns for N steps (prediction_horizon, 4)
+            Predicted OHLCV returns for N steps (prediction_horizon, 5)
         """
         current_sequence = initial_sequence.copy()
-        predictions = np.zeros((self.prediction_horizon, 4), dtype=np.float32)
+        predictions = np.zeros((self.prediction_horizon, 5), dtype=np.float32)
         
         for step in range(self.prediction_horizon):
-            # Predict next step (returns 4 values: OHLC)
+            # Predict next step (returns 5 values: OHLCV)
             next_pred = self.model.predict(
                 current_sequence[np.newaxis, :, :],
                 verbose=0
-            )[0]  # Shape: (4,) for OHLC
+            )[0]  # Shape: (5,) for OHLCV
             
             predictions[step] = next_pred
             
-            # Update sequence: shift left and append predicted OHLC
-            new_row = np.zeros(current_sequence.shape[1], dtype=np.float32)
-            new_row[0:4] = next_pred  # OHLC predictions
-            # For Volume, use simple persistence (last value)
-            new_row[4] = current_sequence[-1, 4]
+            # Update sequence: shift left and append predicted OHLCV
+            new_row = next_pred.copy()  # All 5 predictions (OHLCV)
             
             current_sequence = np.vstack([current_sequence[1:], new_row])
         
@@ -322,7 +313,7 @@ class LSTMPricePredictor:
         """
         Batch version of recursive prediction for multiple sequences.
         Processes predictions in batches for efficiency.
-        Now handles OHLC predictions (4 values per step).
+        Now handles OHLCV predictions (5 values per step).
         
         Parameters:
         -----------
@@ -334,10 +325,10 @@ class LSTMPricePredictor:
         Returns:
         --------
         all_predictions : np.ndarray
-            Predicted OHLC returns for all sequences (n_sequences, prediction_horizon, 4)
+            Predicted OHLCV returns for all sequences (n_sequences, prediction_horizon, 5)
         """
         n_sequences = len(sequences)
-        all_predictions = np.zeros((n_sequences, self.prediction_horizon, 4), dtype=np.float32)
+        all_predictions = np.zeros((n_sequences, self.prediction_horizon, 5), dtype=np.float32)
         
         # Process each prediction step across all sequences
         current_sequences = sequences.copy()
@@ -348,16 +339,15 @@ class LSTMPricePredictor:
                 current_sequences,
                 batch_size=batch_size,
                 verbose=0
-            )  # Shape: (n_sequences, 4) for OHLC
+            )  # Shape: (n_sequences, 5) for OHLCV
             
             all_predictions[:, step, :] = step_predictions
             
             # Update all sequences for next step
             if step < self.prediction_horizon - 1:  # Don't update on last step
                 for i in range(n_sequences):
-                    new_row = np.zeros(current_sequences.shape[2], dtype=np.float32)
-                    new_row[0:4] = step_predictions[i]  # OHLC predictions
-                    new_row[4] = current_sequences[i, -1, 4]  # Volume persistence
+                    # Use all 5 predicted values (OHLCV)
+                    new_row = step_predictions[i].copy()
                     
                     # Shift sequence and append new prediction
                     current_sequences[i] = np.vstack([current_sequences[i, 1:], new_row])
@@ -367,7 +357,7 @@ class LSTMPricePredictor:
     def _predict_direct(self, sequence):
         """
         Directly predict all N steps at once.
-        Now handles OHLC predictions (4 values per step).
+        Now handles OHLCV predictions (5 values per step).
         
         Parameters:
         -----------
@@ -377,15 +367,15 @@ class LSTMPricePredictor:
         Returns:
         --------
         predictions : np.ndarray
-            Predicted OHLC returns for N steps (prediction_horizon, 4)
+            Predicted OHLCV returns for N steps (prediction_horizon, 5)
         """
         predictions = self.model.predict(
             sequence[np.newaxis, :, :],
             verbose=0
-        )[0]  # Shape: (prediction_horizon * 4,)
+        )[0]  # Shape: (prediction_horizon * 5,)
         
-        # Reshape to (prediction_horizon, 4)
-        predictions = predictions.reshape(self.prediction_horizon, 4)
+        # Reshape to (prediction_horizon, 5)
+        predictions = predictions.reshape(self.prediction_horizon, 5)
         
         return predictions
     
@@ -441,9 +431,9 @@ class LSTMPricePredictor:
                 all_sequences,
                 batch_size=self.batch_size,
                 verbose=0 if not self.verbose else 1
-            )  # Shape: (n_predictions, prediction_horizon * 4)
-            # Reshape to (n_predictions, prediction_horizon, 4)
-            all_predictions = raw_predictions.reshape(n_predictions, self.prediction_horizon, 4)
+            )  # Shape: (n_predictions, prediction_horizon * 5)
+            # Reshape to (n_predictions, prediction_horizon, 5)
+            all_predictions = raw_predictions.reshape(n_predictions, self.prediction_horizon, 5)
         
         if self.verbose:
             print(f"Predictions complete!")
@@ -455,50 +445,53 @@ class LSTMPricePredictor:
     
     def _returns_to_prices(self, data, predicted_returns, start_idx):
         """
-        Convert predicted OHLC returns back to actual OHLC price predictions.
+        Convert predicted OHLCV returns back to actual OHLCV price predictions.
         
         Parameters:
         -----------
         data : pd.DataFrame
             Original OHLCV data
         predicted_returns : np.ndarray
-            Predicted OHLC returns (n_predictions, prediction_horizon, 4)
+            Predicted OHLCV returns (n_predictions, prediction_horizon, 5)
         start_idx : int
             Starting index for predictions
             
         Returns:
         --------
         results : pd.DataFrame
-            DataFrame with actual OHLC and predicted OHLC prices
+            DataFrame with actual OHLCV and predicted OHLCV prices
         """
-        ohlc_data = data[['Open', 'High', 'Low', 'Close']].values
+        ohlcv_data = data[['Open', 'High', 'Low', 'Close', 'Volume']].values
         n_predictions = len(predicted_returns)
         
         results = pd.DataFrame(index=data.index[start_idx:start_idx + n_predictions])
-        # Store actual OHLC
-        results['actual_open'] = ohlc_data[start_idx:start_idx + n_predictions, 0]
-        results['actual_high'] = ohlc_data[start_idx:start_idx + n_predictions, 1]
-        results['actual_low'] = ohlc_data[start_idx:start_idx + n_predictions, 2]
-        results['actual_close'] = ohlc_data[start_idx:start_idx + n_predictions, 3]
+        # Store actual OHLCV
+        results['actual_open'] = ohlcv_data[start_idx:start_idx + n_predictions, 0]
+        results['actual_high'] = ohlcv_data[start_idx:start_idx + n_predictions, 1]
+        results['actual_low'] = ohlcv_data[start_idx:start_idx + n_predictions, 2]
+        results['actual_close'] = ohlcv_data[start_idx:start_idx + n_predictions, 3]
+        results['actual_volume'] = ohlcv_data[start_idx:start_idx + n_predictions, 4]
         # Keep backward compatibility
         results['actual_price'] = results['actual_close']
         
-        # Convert each prediction horizon to actual OHLC prices
+        # Convert each prediction horizon to actual OHLCV prices
         for step in range(self.prediction_horizon):
             pred_open = np.zeros(n_predictions, dtype=np.float32)
             pred_high = np.zeros(n_predictions, dtype=np.float32)
             pred_low = np.zeros(n_predictions, dtype=np.float32)
             pred_close = np.zeros(n_predictions, dtype=np.float32)
+            pred_volume = np.zeros(n_predictions, dtype=np.float32)
             
             for i in range(n_predictions):
-                # Base prices from previous candle
-                base_open = ohlc_data[start_idx + i - 1, 0]
-                base_high = ohlc_data[start_idx + i - 1, 1]
-                base_low = ohlc_data[start_idx + i - 1, 2]
-                base_close = ohlc_data[start_idx + i - 1, 3]
+                # Base values from previous candle
+                base_open = ohlcv_data[start_idx + i - 1, 0]
+                base_high = ohlcv_data[start_idx + i - 1, 1]
+                base_low = ohlcv_data[start_idx + i - 1, 2]
+                base_close = ohlcv_data[start_idx + i - 1, 3]
+                base_volume = ohlcv_data[start_idx + i - 1, 4]
                 
-                # Compound returns for multi-step predictions (OHLC separately)
-                cumulative_returns = np.ones(4, dtype=np.float32)
+                # Compound returns for multi-step predictions (OHLCV separately)
+                cumulative_returns = np.ones(5, dtype=np.float32)
                 for s in range(step + 1):
                     cumulative_returns *= (1 + predicted_returns[i, s, :])
                 
@@ -506,109 +499,20 @@ class LSTMPricePredictor:
                 pred_high[i] = base_high * cumulative_returns[1]
                 pred_low[i] = base_low * cumulative_returns[2]
                 pred_close[i] = base_close * cumulative_returns[3]
+                pred_volume[i] = base_volume * cumulative_returns[4]
             
-            # Store predicted OHLC for this horizon
+            # Store predicted OHLCV for this horizon
             results[f'pred_open_{step+1}'] = pred_open
             results[f'pred_high_{step+1}'] = pred_high
             results[f'pred_low_{step+1}'] = pred_low
             results[f'pred_close_{step+1}'] = pred_close
+            results[f'pred_volume_{step+1}'] = pred_volume
             # Keep backward compatibility
             results[f'pred_price_{step+1}'] = pred_close
         
         return results
     
-    def save_model(self, model_name):
-        """
-        Save trained model and metadata.
-        
-        Parameters:
-        -----------
-        model_name : str
-            Name for the saved model
-        """
-        if not self.is_fitted:
-            raise ValueError("No trained model to save.")
-        
-        model_path = os.path.join(self.model_dir, f"{model_name}.keras")
-        metadata_path = os.path.join(self.model_dir, f"{model_name}_metadata.json")
-        scaler_path = os.path.join(self.model_dir, f"{model_name}_scaler.npz")
-        
-        # Save model
-        self.model.save(model_path)
-        
-        # Save metadata
-        metadata = {
-            'lookback_window': self.lookback_window,
-            'prediction_horizon': self.prediction_horizon,
-            'lstm_units': self.lstm_units,
-            'num_layers': self.num_layers,
-            'dropout': self.dropout,
-            'prediction_mode': self.prediction_mode,
-            'feature_names': self.feature_names,
-            'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'final_train_loss': float(self.training_history.history['loss'][-1]),
-            'final_val_loss': float(self.training_history.history['val_loss'][-1])
-        }
-        
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
-        
-        # Save scaler
-        np.savez(scaler_path,
-                 mean=self.scaler.mean_,
-                 scale=self.scaler.scale_)
-        
-        print(f"Model saved to {model_path}")
-        print(f"Metadata saved to {metadata_path}")
-    
-    def load_model(self, model_name):
-        """
-        Load a previously trained model.
-        
-        Parameters:
-        -----------
-        model_name : str
-            Name of the saved model
-            
-        Returns:
-        --------
-        self
-        """
-        model_path = os.path.join(self.model_dir, f"{model_name}.keras")
-        metadata_path = os.path.join(self.model_dir, f"{model_name}_metadata.json")
-        scaler_path = os.path.join(self.model_dir, f"{model_name}_scaler.npz")
-        
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model not found: {model_path}")
-        
-        # Load model
-        self.model = load_model(model_path)
-        
-        # Load metadata
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-        
-        # Restore parameters
-        self.lookback_window = metadata['lookback_window']
-        self.prediction_horizon = metadata['prediction_horizon']
-        self.lstm_units = metadata['lstm_units']
-        self.num_layers = metadata['num_layers']
-        self.dropout = metadata['dropout']
-        self.prediction_mode = metadata['prediction_mode']
-        self.feature_names = metadata['feature_names']
-        
-        # Load scaler
-        scaler_data = np.load(scaler_path)
-        self.scaler.mean_ = scaler_data['mean']
-        self.scaler.scale_ = scaler_data['scale']
-        
-        self.is_fitted = True
-        
-        print(f"Model loaded from {model_path}")
-        print(f"Trained on: {metadata['training_date']}")
-        print(f"Training loss: {metadata['final_train_loss']:.6f}")
-        
-        return self
+    # Model saving/loading removed - always create fresh models with correct OHLCV architecture
     
     def get_training_history(self):
         """
