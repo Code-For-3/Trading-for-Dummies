@@ -313,6 +313,51 @@ class LSTMPricePredictor:
         
         return predictions
     
+    def _batch_predict_recursive(self, sequences, batch_size=32):
+        """
+        Batch version of recursive prediction for multiple sequences.
+        Processes predictions in batches for efficiency.
+        
+        Parameters:
+        -----------
+        sequences : np.ndarray
+            Multiple starting sequences (n_sequences, lookback_window, n_features)
+        batch_size : int
+            Batch size for predictions
+            
+        Returns:
+        --------
+        all_predictions : np.ndarray
+            Predicted returns for all sequences (n_sequences, prediction_horizon)
+        """
+        n_sequences = len(sequences)
+        all_predictions = np.zeros((n_sequences, self.prediction_horizon), dtype=np.float32)
+        
+        # Process each prediction step across all sequences
+        current_sequences = sequences.copy()
+        
+        for step in range(self.prediction_horizon):
+            # Batch predict for all sequences at this step
+            step_predictions = self.model.predict(
+                current_sequences,
+                batch_size=batch_size,
+                verbose=0
+            )[:, 0]  # Shape: (n_sequences,)
+            
+            all_predictions[:, step] = step_predictions
+            
+            # Update all sequences for next step
+            if step < self.prediction_horizon - 1:  # Don't update on last step
+                for i in range(n_sequences):
+                    new_row = np.zeros(current_sequences.shape[2], dtype=np.float32)
+                    new_row[3] = step_predictions[i]  # Close prediction
+                    new_row[[0, 1, 2, 4]] = current_sequences[i, -1, [0, 1, 2, 4]]
+                    
+                    # Shift sequence and append new prediction
+                    current_sequences[i] = np.vstack([current_sequences[i, 1:], new_row])
+        
+        return all_predictions
+    
     def _predict_direct(self, sequence):
         """
         Directly predict all N steps at once.
@@ -368,19 +413,28 @@ class LSTMPricePredictor:
         
         n_predictions = end_idx - start_idx + 1
         
-        # Pre-allocate results array
-        all_predictions = np.zeros((n_predictions, self.prediction_horizon), dtype=np.float32)
+        if self.verbose:
+            print(f"Generating {n_predictions} predictions in batched mode...")
         
-        # Generate predictions efficiently
+        # Create all sequences at once (vectorized operation)
+        all_sequences = np.zeros((n_predictions, self.lookback_window, returns_scaled.shape[1]), dtype=np.float32)
         for i, idx in enumerate(range(start_idx, end_idx + 1)):
-            sequence = returns_scaled[idx - self.lookback_window:idx]
-            
-            if self.prediction_mode == 'recursive':
-                predictions = self._predict_recursive(sequence)
-            else:
-                predictions = self._predict_direct(sequence)
-            
-            all_predictions[i] = predictions
+            all_sequences[i] = returns_scaled[idx - self.lookback_window:idx]
+        
+        # Batch predictions based on mode
+        if self.prediction_mode == 'recursive':
+            # Batch recursive prediction (processes all sequences together by step)
+            all_predictions = self._batch_predict_recursive(all_sequences, batch_size=self.batch_size)
+        else:
+            # Direct mode: predict all at once
+            all_predictions = self.model.predict(
+                all_sequences,
+                batch_size=self.batch_size,
+                verbose=0 if not self.verbose else 1
+            )
+        
+        if self.verbose:
+            print(f"Predictions complete!")
         
         # Convert returns back to prices
         results = self._returns_to_prices(data, all_predictions, start_idx)
@@ -539,23 +593,28 @@ class LSTMPricePredictor:
         
         return history_df
     
-    def evaluate(self, data, tolerance_levels=[0.001, 0.005, 0.01]):
+    def evaluate(self, data=None, tolerance_levels=[0.001, 0.005, 0.01], predictions=None):
         """
         Evaluate model performance on data with comprehensive trading metrics.
         
         Parameters:
         -----------
-        data : pd.DataFrame
-            OHLCV data for evaluation
+        data : pd.DataFrame, optional
+            OHLCV data for evaluation (not needed if predictions provided)
         tolerance_levels : list of float
             Tolerance thresholds for hit rate calculation (e.g., 0.001 = 0.1%)
+        predictions : pd.DataFrame, optional
+            Pre-computed predictions DataFrame. If provided, skips prediction step.
             
         Returns:
         --------
         metrics : pd.DataFrame
             Performance metrics including MAE, RMSE, MAPE, directional accuracy, and hit rates
         """
-        predictions = self.predict(data)
+        if predictions is None:
+            if data is None:
+                raise ValueError("Must provide either 'data' or 'predictions'")
+            predictions = self.predict(data)
         
         metrics = {}
         
@@ -593,23 +652,28 @@ class LSTMPricePredictor:
         
         return pd.DataFrame(metrics).T
     
-    def get_directional_accuracy(self, data, detailed=False):
+    def get_directional_accuracy(self, data=None, detailed=False, predictions=None):
         """
         Calculate detailed directional accuracy metrics.
         
         Parameters:
         -----------
-        data : pd.DataFrame
-            OHLCV data for evaluation
+        data : pd.DataFrame, optional
+            OHLCV data for evaluation (not needed if predictions provided)
         detailed : bool
             If True, returns detailed breakdown (true positives, false positives, etc.)
+        predictions : pd.DataFrame, optional
+            Pre-computed predictions DataFrame. If provided, skips prediction step.
             
         Returns:
         --------
         results : pd.DataFrame or dict
             Directional accuracy metrics by prediction step
         """
-        predictions = self.predict(data)
+        if predictions is None:
+            if data is None:
+                raise ValueError("Must provide either 'data' or 'predictions'")
+            predictions = self.predict(data)
         actual = predictions['actual_price'].values
         
         if len(actual) <= 1:
@@ -666,23 +730,28 @@ class LSTMPricePredictor:
         
         return pd.DataFrame(results).T
     
-    def get_hit_rates(self, data, tolerance_levels=[0.001, 0.005, 0.01, 0.02]):
+    def get_hit_rates(self, data=None, tolerance_levels=[0.001, 0.005, 0.01, 0.02], predictions=None):
         """
         Calculate hit rates at multiple tolerance levels ("close enough" accuracy).
         
         Parameters:
         -----------
-        data : pd.DataFrame
-            OHLCV data for evaluation
+        data : pd.DataFrame, optional
+            OHLCV data for evaluation (not needed if predictions provided)
         tolerance_levels : list of float
             Tolerance thresholds (e.g., 0.001 = 0.1%, 0.01 = 1%)
+        predictions : pd.DataFrame, optional
+            Pre-computed predictions DataFrame. If provided, skips prediction step.
             
         Returns:
         --------
         results : pd.DataFrame
             Hit rates for each prediction step at each tolerance level
         """
-        predictions = self.predict(data)
+        if predictions is None:
+            if data is None:
+                raise ValueError("Must provide either 'data' or 'predictions'")
+            predictions = self.predict(data)
         actual = predictions['actual_price'].values
         
         results = {}
