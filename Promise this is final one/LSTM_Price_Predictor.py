@@ -408,7 +408,12 @@ class LSTMPricePredictor:
         
         end_idx = len(data) - self.prediction_horizon
         
-        if start_idx >= end_idx:
+        # Special case: if we have exactly lookback_window rows, allow one prediction
+        # This happens in recursive prediction when we build sliding windows
+        if len(data) == self.lookback_window and start_idx == self.lookback_window:
+            end_idx = self.lookback_window  # Allow prediction from this position
+        
+        if start_idx > end_idx:
             raise ValueError(f"Not enough data for predictions. Need at least {self.lookback_window + self.prediction_horizon} samples.")
         
         n_predictions = end_idx - start_idx + 1
@@ -446,6 +451,7 @@ class LSTMPricePredictor:
     def _returns_to_prices(self, data, predicted_returns, start_idx):
         """
         Convert predicted OHLCV returns back to actual OHLCV price predictions.
+        Now enforces candlestick constraints: High >= max(O,C), Low <= min(O,C)
         
         Parameters:
         -----------
@@ -483,23 +489,48 @@ class LSTMPricePredictor:
             pred_volume = np.zeros(n_predictions, dtype=np.float32)
             
             for i in range(n_predictions):
-                # Base values from previous candle
-                base_open = ohlcv_data[start_idx + i - 1, 0]
-                base_high = ohlcv_data[start_idx + i - 1, 1]
-                base_low = ohlcv_data[start_idx + i - 1, 2]
+                # Use previous CLOSE as base for all OHLC predictions
+                # This makes predictions relative to the same reference point
                 base_close = ohlcv_data[start_idx + i - 1, 3]
                 base_volume = ohlcv_data[start_idx + i - 1, 4]
                 
-                # Compound returns for multi-step predictions (OHLCV separately)
-                cumulative_returns = np.ones(5, dtype=np.float32)
-                for s in range(step + 1):
-                    cumulative_returns *= (1 + predicted_returns[i, s, :])
+                # Compound returns for multi-step predictions with dampening
+                # Dampening factor reduces extreme predictions
+                dampening_factor = 0.5  # Reduce volatility by 50%
                 
-                pred_open[i] = base_open * cumulative_returns[0]
-                pred_high[i] = base_high * cumulative_returns[1]
-                pred_low[i] = base_low * cumulative_returns[2]
-                pred_close[i] = base_close * cumulative_returns[3]
-                pred_volume[i] = base_volume * cumulative_returns[4]
+                cumulative_return_open = 1.0
+                cumulative_return_high = 1.0
+                cumulative_return_low = 1.0
+                cumulative_return_close = 1.0
+                cumulative_return_volume = 1.0
+                
+                for s in range(step + 1):
+                    # Apply dampening to returns (makes predictions more conservative)
+                    cumulative_return_open *= (1 + predicted_returns[i, s, 0] * dampening_factor)
+                    cumulative_return_high *= (1 + predicted_returns[i, s, 1] * dampening_factor)
+                    cumulative_return_low *= (1 + predicted_returns[i, s, 2] * dampening_factor)
+                    cumulative_return_close *= (1 + predicted_returns[i, s, 3] * dampening_factor)
+                    cumulative_return_volume *= (1 + predicted_returns[i, s, 4] * dampening_factor)
+                
+                # Apply returns to base close price
+                pred_open[i] = base_close * cumulative_return_open
+                pred_close[i] = base_close * cumulative_return_close
+                pred_volume[i] = base_volume * cumulative_return_volume
+                
+                # For High/Low: use tighter ranges around Open/Close
+                # Instead of allowing wild swings, constrain to realistic intraday volatility
+                body_size = abs(pred_close[i] - pred_open[i])
+                typical_wick_ratio = 0.3  # High/Low wicks are typically 30% of body size
+                
+                unconstrained_high = base_close * cumulative_return_high
+                unconstrained_low = base_close * cumulative_return_low
+                
+                # Limit High/Low to reasonable ranges
+                max_reasonable_high = max(pred_open[i], pred_close[i]) + body_size * typical_wick_ratio
+                min_reasonable_low = min(pred_open[i], pred_close[i]) - body_size * typical_wick_ratio
+                
+                pred_high[i] = min(max(unconstrained_high, pred_open[i], pred_close[i]), max_reasonable_high)
+                pred_low[i] = max(min(unconstrained_low, pred_open[i], pred_close[i]), min_reasonable_low)
             
             # Store predicted OHLCV for this horizon
             results[f'pred_open_{step+1}'] = pred_open
