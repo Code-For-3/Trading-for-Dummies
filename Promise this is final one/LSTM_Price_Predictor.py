@@ -539,19 +539,21 @@ class LSTMPricePredictor:
         
         return history_df
     
-    def evaluate(self, data):
+    def evaluate(self, data, tolerance_levels=[0.001, 0.005, 0.01]):
         """
-        Evaluate model performance on data.
+        Evaluate model performance on data with comprehensive trading metrics.
         
         Parameters:
         -----------
         data : pd.DataFrame
             OHLCV data for evaluation
+        tolerance_levels : list of float
+            Tolerance thresholds for hit rate calculation (e.g., 0.001 = 0.1%)
             
         Returns:
         --------
-        metrics : dict
-            Performance metrics (MAE, RMSE, MAPE, etc.)
+        metrics : pd.DataFrame
+            Performance metrics including MAE, RMSE, MAPE, directional accuracy, and hit rates
         """
         predictions = self.predict(data)
         
@@ -561,21 +563,147 @@ class LSTMPricePredictor:
             actual = predictions['actual_price'].values
             pred = predictions[f'pred_price_{step}'].values
             
-            # Calculate metrics
+            # Value-based metrics
             mae = np.mean(np.abs(actual - pred))
             rmse = np.sqrt(np.mean((actual - pred) ** 2))
             mape = np.mean(np.abs((actual - pred) / actual)) * 100
             
-            # Direction accuracy (did we predict up/down correctly?)
-            actual_direction = np.sign(np.diff(actual))
-            pred_direction = np.sign(pred[1:] - actual[:-1])
-            direction_accuracy = np.mean(actual_direction == pred_direction) * 100
+            # Directional accuracy (did we predict up/down correctly?)
+            if len(actual) > 1:
+                actual_direction = np.sign(np.diff(actual))
+                pred_direction = np.sign(pred[1:] - actual[:-1])
+                direction_accuracy = np.mean(actual_direction == pred_direction) * 100
+            else:
+                direction_accuracy = np.nan
+            
+            # Hit rates at different tolerance levels
+            hit_rates = {}
+            for tolerance in tolerance_levels:
+                pct_error = np.abs((pred - actual) / actual)
+                hit_rate = np.mean(pct_error <= tolerance) * 100
+                hit_rates[f'Hit_Rate_{tolerance*100:.1f}%'] = hit_rate
             
             metrics[f'step_{step}'] = {
                 'MAE': mae,
                 'RMSE': rmse,
                 'MAPE': mape,
-                'Direction_Accuracy': direction_accuracy
+                'Direction_Accuracy': direction_accuracy,
+                **hit_rates
             }
         
         return pd.DataFrame(metrics).T
+    
+    def get_directional_accuracy(self, data, detailed=False):
+        """
+        Calculate detailed directional accuracy metrics.
+        
+        Parameters:
+        -----------
+        data : pd.DataFrame
+            OHLCV data for evaluation
+        detailed : bool
+            If True, returns detailed breakdown (true positives, false positives, etc.)
+            
+        Returns:
+        --------
+        results : pd.DataFrame or dict
+            Directional accuracy metrics by prediction step
+        """
+        predictions = self.predict(data)
+        actual = predictions['actual_price'].values
+        
+        if len(actual) <= 1:
+            raise ValueError("Need at least 2 data points for directional accuracy")
+        
+        # Actual direction changes
+        actual_direction = np.sign(np.diff(actual))
+        
+        results = {}
+        
+        for step in range(1, self.prediction_horizon + 1):
+            pred = predictions[f'pred_price_{step}'].values
+            pred_direction = np.sign(pred[1:] - actual[:-1])
+            
+            # Overall accuracy
+            correct = actual_direction == pred_direction
+            accuracy = np.mean(correct) * 100
+            
+            if detailed:
+                # Breakdown by direction
+                up_mask = actual_direction > 0
+                down_mask = actual_direction < 0
+                flat_mask = actual_direction == 0
+                
+                pred_up_mask = pred_direction > 0
+                pred_down_mask = pred_direction < 0
+                
+                # True positives / negatives
+                true_up = np.sum(up_mask & pred_up_mask)
+                true_down = np.sum(down_mask & pred_down_mask)
+                false_up = np.sum(down_mask & pred_up_mask)  # Predicted up, actually down
+                false_down = np.sum(up_mask & pred_down_mask)  # Predicted down, actually up
+                
+                total_up = np.sum(up_mask)
+                total_down = np.sum(down_mask)
+                
+                results[f'step_{step}'] = {
+                    'Accuracy': accuracy,
+                    'Total_Predictions': len(correct),
+                    'Correct': np.sum(correct),
+                    'Incorrect': np.sum(~correct),
+                    'Actual_Up_Days': total_up,
+                    'Actual_Down_Days': total_down,
+                    'Actual_Flat_Days': np.sum(flat_mask),
+                    'True_Up': true_up,
+                    'True_Down': true_down,
+                    'False_Up': false_up,
+                    'False_Down': false_down,
+                    'Up_Accuracy': (true_up / total_up * 100) if total_up > 0 else np.nan,
+                    'Down_Accuracy': (true_down / total_down * 100) if total_down > 0 else np.nan
+                }
+            else:
+                results[f'step_{step}'] = {'Accuracy': accuracy}
+        
+        return pd.DataFrame(results).T
+    
+    def get_hit_rates(self, data, tolerance_levels=[0.001, 0.005, 0.01, 0.02]):
+        """
+        Calculate hit rates at multiple tolerance levels ("close enough" accuracy).
+        
+        Parameters:
+        -----------
+        data : pd.DataFrame
+            OHLCV data for evaluation
+        tolerance_levels : list of float
+            Tolerance thresholds (e.g., 0.001 = 0.1%, 0.01 = 1%)
+            
+        Returns:
+        --------
+        results : pd.DataFrame
+            Hit rates for each prediction step at each tolerance level
+        """
+        predictions = self.predict(data)
+        actual = predictions['actual_price'].values
+        
+        results = {}
+        
+        for step in range(1, self.prediction_horizon + 1):
+            pred = predictions[f'pred_price_{step}'].values
+            
+            step_results = {}
+            for tolerance in tolerance_levels:
+                pct_error = np.abs((pred - actual) / actual)
+                hits = pct_error <= tolerance
+                
+                hit_rate = np.mean(hits) * 100
+                hit_count = np.sum(hits)
+                miss_count = np.sum(~hits)
+                
+                tolerance_pct = tolerance * 100
+                step_results[f'±{tolerance_pct:.1f}%_HitRate'] = hit_rate
+                step_results[f'±{tolerance_pct:.1f}%_Hits'] = hit_count
+                step_results[f'±{tolerance_pct:.1f}%_Misses'] = miss_count
+            
+            results[f'step_{step}'] = step_results
+        
+        return pd.DataFrame(results).T
