@@ -17,8 +17,7 @@ from sklearn.cluster import KMeans
 class LSTMDirectionClassifier:
     """
     LSTM-based direction classifier for multi-horizon prediction.
-    Predicts BULLISH/NOT BULLISH for multiple time horizons simultaneously.
-    Optimized for identifying long entry points.
+    Predicts UP/FLAT/DOWN for multiple time horizons simultaneously.
     Uses market regime clustering as additional context.
     """
     
@@ -68,16 +67,16 @@ class LSTMDirectionClassifier:
         self.n_clusters = n_clusters
         self.verbose = verbose
         
-        # Class definitions - BINARY CLASSIFICATION
-        self.classes = ['NOT BULLISH', 'BULLISH']
-        self.n_classes = 2
+        # Class definitions
+        self.classes = ['DOWN', 'FLAT', 'UP']
+        self.n_classes = 3
         
-        # Thresholds for BULLISH classification (need to exceed this to be bullish)
+        # Thresholds for each horizon (larger horizons = wider flat zones)
         self.thresholds = {
-            1: 0.005,   # >0.5% gain for 1-day
-            3: 0.010,   # >1.0% gain for 3-day
-            5: 0.015,   # >1.5% gain for 5-day
-            10: 0.020,  # >2.0% gain for 10-day
+            1: 0.005,   # ±0.5% for 1-day
+            3: 0.010,   # ±1.0% for 3-day
+            5: 0.015,   # ±1.5% for 5-day
+            10: 0.020,  # ±2.0% for 10-day
         }
         
         self.model = None
@@ -102,19 +101,21 @@ class LSTMDirectionClassifier:
         
         return rsi.fillna(50)  # Fill NaN with neutral value
     
-    def _calculate_features(self, data):
+    def _calculate_features(self, data, fit_clusters=False):
         """
-        Calculate features including OHLCV returns and RSI.
+        Calculate features including OHLCV returns, RSI, and cluster assignment.
         
         Parameters:
         -----------
         data : pd.DataFrame
             OHLCV data
+        fit_clusters : bool
+            Whether to fit the clustering model (True for training, False for testing)
             
         Returns:
         --------
         features : pd.DataFrame
-            Feature dataframe with returns and RSI
+            Feature dataframe with returns, RSI, and cluster_id
         """
         features = pd.DataFrame(index=data.index)
         
@@ -125,6 +126,27 @@ class LSTMDirectionClassifier:
         # RSI indicator
         features['RSI_14'] = self._calculate_rsi(data) / 100.0  # Normalize to 0-1
         
+        # Calculate rolling features for clustering
+        features['rolling_volatility'] = features['Close_return'].rolling(window=20, min_periods=1).std().fillna(0)
+        features['rolling_trend'] = data['Close'].pct_change(20).fillna(0)
+        
+        # Fit or apply clustering
+        if fit_clusters:
+            # Fit clustering on entire dataset
+            cluster_features = features[['RSI_14', 'rolling_volatility', 'rolling_trend']].values
+            cluster_features_scaled = self.cluster_scaler.fit_transform(cluster_features)
+            self.cluster_model = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10)
+            features['cluster_id'] = self.cluster_model.fit_predict(cluster_features_scaled)
+            
+            if self.verbose:
+                print(f"✓ Fitted {self.n_clusters} market regime clusters")
+                print(f"  Cluster distribution: {features['cluster_id'].value_counts().sort_index().to_dict()}")
+        else:
+            # Apply pre-fitted clustering
+            cluster_features = features[['RSI_14', 'rolling_volatility', 'rolling_trend']].values
+            cluster_features_scaled = self.cluster_scaler.transform(cluster_features)
+            features['cluster_id'] = self.cluster_model.predict(cluster_features_scaled)
+        
         # Keep original close for labeling
         features['Close'] = data['Close']
         
@@ -132,68 +154,21 @@ class LSTMDirectionClassifier:
     
     def _fit_clustering(self, data):
         """
-        Fit K-Means clustering on market regimes.
-        Clusters based on RSI, volatility (ATR-like), and trend.
-        
-        Parameters:
-        -----------
-        data : pd.DataFrame
-            Feature data
+        DEPRECATED: Clustering now happens in _calculate_features()
+        This method is kept for backwards compatibility but does nothing.
         """
-        if self.verbose:
-            print(f"\nFitting {self.n_clusters} market regime clusters...")
-        
-        # Calculate clustering features for each lookback window
-        cluster_features_list = []
-        
-        for i in range(self.lookback_window, len(data)):
-            window = data.iloc[i-self.lookback_window:i]
-            
-            # Features for clustering
-            avg_rsi = window['RSI_14'].mean()
-            volatility = window['Close_return'].std()
-            trend = (window['Close'].iloc[-1] / window['Close'].iloc[0] - 1)  # Overall return
-            
-            cluster_features_list.append([avg_rsi, volatility, trend])
-        
-        cluster_features = np.array(cluster_features_list)
-        
-        # Fit scaler and cluster model
-        cluster_features_scaled = self.cluster_scaler.fit_transform(cluster_features)
-        self.cluster_model = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10)
-        self.cluster_model.fit(cluster_features_scaled)
-        
-        if self.verbose:
-            print(f"✓ Clustering complete")
-            print(f"  Cluster centers:\n{self.cluster_model.cluster_centers_}")
+        pass
     
     def _get_cluster_id(self, window):
         """
-        Get cluster ID for a single lookback window.
-        
-        Parameters:
-        -----------
-        window : pd.DataFrame
-            Lookback window of features
-            
-        Returns:
-        --------
-        cluster_id : int
-            Cluster assignment (0 to n_clusters-1)
+        DEPRECATED: Cluster IDs now assigned at data level in _calculate_features()
+        This method is kept for backwards compatibility but does nothing.
         """
-        avg_rsi = window['RSI_14'].mean()
-        volatility = window['Close_return'].std()
-        trend = (window['Close'].iloc[-1] / window['Close'].iloc[0] - 1)
-        
-        features = np.array([[avg_rsi, volatility, trend]])
-        features_scaled = self.cluster_scaler.transform(features)
-        cluster_id = self.cluster_model.predict(features_scaled)[0]
-        
-        return cluster_id
+        pass
     
     def _create_labels(self, data, horizon):
         """
-        Create classification labels (BULLISH/NOT BULLISH) for a specific horizon.
+        Create classification labels (UP/FLAT/DOWN) for a specific horizon.
         Labels are ABSOLUTE - all based on current day (day 0).
         
         Parameters:
@@ -206,28 +181,28 @@ class LSTMDirectionClassifier:
         Returns:
         --------
         labels : np.ndarray
-            Integer labels: 0=NOT BULLISH, 1=BULLISH
+            Integer labels: 0=DOWN, 1=FLAT, 2=UP
         """
         # Calculate future return (absolute from current day)
         future_returns = data['Close'].pct_change(horizon).shift(-horizon)
         
         threshold = self.thresholds.get(horizon, 0.01)
         
-        # Create binary labels: BULLISH if future return exceeds threshold
-        labels = np.where(future_returns > threshold, 1, 0)  # 1=BULLISH, 0=NOT BULLISH
+        # Create labels
+        labels = np.where(future_returns > threshold, 2,      # UP
+                 np.where(future_returns < -threshold, 0,     # DOWN
+                          1))                                 # FLAT
         
         return labels
     
-    def _create_sequences(self, features, include_cluster=True):
+    def _create_sequences(self, features):
         """
-        Create input sequences with cluster IDs and labels for all horizons.
+        Create input sequences with cluster_id as a feature and labels for all horizons.
         
         Parameters:
         -----------
         features : pd.DataFrame
-            Feature dataframe
-        include_cluster : bool
-            Whether to include cluster ID as feature
+            Feature dataframe (includes cluster_id column)
             
         Returns:
         --------
@@ -236,10 +211,11 @@ class LSTMDirectionClassifier:
         y_dict : dict
             Labels for each horizon {1: labels_1day, 3: labels_3day, ...}
         cluster_ids : np.ndarray
-            Cluster IDs for each sequence
+            Cluster IDs for each sequence (from the last timestep)
         """
         # Extract feature columns (exclude Close which is only for labeling)
-        feature_cols = [col for col in features.columns if col != 'Close']
+        # Include cluster_id as a feature
+        feature_cols = [col for col in features.columns if col not in ['Close', 'rolling_volatility', 'rolling_trend']]
         feature_data = features[feature_cols].values
         
         n_samples = len(features)
@@ -251,10 +227,8 @@ class LSTMDirectionClassifier:
         if n_sequences <= 0:
             raise ValueError(f"Not enough data. Need at least {self.lookback_window + max_horizon} samples.")
         
-        # Calculate number of features (6 OHLCV returns + RSI + optionally cluster)
+        # Number of features: OHLCV returns (5) + RSI (1) + cluster_id (1) = 7 features
         n_features = len(feature_cols)
-        if include_cluster:
-            n_features += 1
         
         # Pre-allocate arrays
         X = np.zeros((n_sequences, self.lookback_window, n_features), dtype=np.float32)
@@ -266,22 +240,11 @@ class LSTMDirectionClassifier:
             start_idx = i
             end_idx = i + self.lookback_window
             
-            # Get window
-            window_features = feature_data[start_idx:end_idx]
-            window_df = features.iloc[start_idx:end_idx]
+            # Get window features (includes cluster_id for each timestep)
+            X[i] = feature_data[start_idx:end_idx]
             
-            # Get cluster ID
-            if include_cluster:
-                cluster_id = self._get_cluster_id(window_df)
-                cluster_ids[i] = cluster_id
-                
-                # Add cluster as one-hot encoded feature across all timesteps
-                cluster_one_hot = np.zeros((self.lookback_window, 1))
-                cluster_one_hot[:, 0] = cluster_id / self.n_clusters  # Normalize
-                
-                X[i] = np.concatenate([window_features, cluster_one_hot], axis=1)
-            else:
-                X[i] = window_features
+            # Store the cluster_id from the last timestep of the window
+            cluster_ids[i] = int(features.iloc[end_idx - 1]['cluster_id'])
             
             # Create labels for each horizon
             for horizon in self.prediction_horizons:
@@ -377,14 +340,11 @@ class LSTMDirectionClassifier:
             print(f"📈 Classes: {self.classes}")
             print(f"🎲 Market regimes: {self.n_clusters} clusters\n")
         
-        # Calculate features
-        features = self._calculate_features(data)
+        # Calculate features (includes clustering)
+        features = self._calculate_features(data, fit_clusters=True)
         
-        # Fit clustering model
-        self._fit_clustering(features)
-        
-        # Create sequences with cluster IDs
-        X, y_dict, cluster_ids = self._create_sequences(features, include_cluster=True)
+        # Create sequences with cluster_id as a feature
+        X, y_dict, cluster_ids = self._create_sequences(features)
         
         # Scale features
         n_sequences, lookback, n_features = X.shape
@@ -469,11 +429,11 @@ class LSTMDirectionClassifier:
         if not self.is_fitted:
             raise ValueError("Model not fitted. Call fit() first.")
         
-        # Calculate features
-        features = self._calculate_features(data)
+        # Calculate features (includes clustering using fitted model)
+        features = self._calculate_features(data, fit_clusters=False)
         
         # Create sequences
-        X, y_dict, cluster_ids = self._create_sequences(features, include_cluster=True)
+        X, y_dict, cluster_ids = self._create_sequences(features)
         
         # Scale
         n_sequences, lookback, n_features = X.shape
@@ -534,7 +494,7 @@ class LSTMDirectionClassifier:
         predictions = self.predict(data, return_probabilities=True)
         
         # Calculate actual labels for each horizon
-        features = self._calculate_features(data)
+        features = self._calculate_features(data, fit_clusters=False)
         
         metrics = {}
         
