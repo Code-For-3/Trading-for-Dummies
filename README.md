@@ -146,4 +146,4 @@ Each strategy inherits from the base `Strategy` class and implements the `genera
 
 ---
 
-> _*Developed by Mario Portillo*_
+> _*Developed by Mario Portillo & Daniel Fernandez & Francesco Isolani*_
