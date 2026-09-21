@@ -33,8 +33,8 @@ Date to: 2025-04-30
 
 ```
 
-![Walk-Forward: Actual Return vs Optimized Value](images/walk_forward.png)
-![Walk-Forward Equity](images/walk_forward_equity.png)
+![Walk-Forward: Actual Return vs Optimized Value](Mario/images/walk_forward.png)
+![Walk-Forward Equity](Mario/images/walk_forward_equity.png)
 
 ## Neural Network Implementation
 
@@ -44,8 +44,8 @@ Date from: 2025-09-01
 Date to: 2025-10-01
 ```
 
-![Actual vs Predicted](images/actual_vs_predicted.png)
-![Prediction Accuracy](images/prediction_accuracy.png)
+![Actual vs Predicted](Mario/images/actual_vs_predicted.png)
+![Prediction Accuracy](Mario/images/prediction_accuracy.png)
 
 ---
 
